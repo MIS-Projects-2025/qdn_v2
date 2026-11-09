@@ -1,8 +1,9 @@
 import React from "react";
 import { Head } from "@inertiajs/react";
-import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 
-export default function Unauthorized() {
+// AuthMiddleware renders this (403) when the Authify session belongs to a
+// user who isn't allowed in this portal, passing the Authify logout URL.
+export default function Unauthorized({ message, logoutUrl }) {
     return (
         <>
             <Head title="Unauthorized" />
@@ -13,9 +14,17 @@ export default function Unauthorized() {
                         Unauthorized
                     </h1>
                     <p className="text-lg text-gray-500 dark:text-gray-400">
-                        You do not have the necessary authorization to access
-                        this system.
+                        {message ||
+                            "You do not have the necessary authorization to access this system."}
                     </p>
+                    {logoutUrl && (
+                        <a
+                            href={logoutUrl}
+                            className="inline-block mt-6 px-4 py-2 rounded-md bg-gray-800 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900"
+                        >
+                            Sign in as someone else
+                        </a>
+                    )}
                 </div>
             </div>
         </>

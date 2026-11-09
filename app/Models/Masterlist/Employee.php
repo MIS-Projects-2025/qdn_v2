@@ -226,4 +226,91 @@ class Employee extends Model
     {
         return $this->hasMany(EmployeeChild::class, 'EMPLOYID', 'employid');
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | QDN roster shape
+    |--------------------------------------------------------------------------
+    | The QDN controllers and React pickers read an employee as
+    | { EMPLOYID, EMPLOYNAME, DEPARTMENT, JOB_TITLE, POSITION_LEVEL, STATION, PRODLINE, TEAM }.
+    | These accessors resolve that shape from the normalized masterlist
+    | tables through the relations above and the Lookups models. Eager-load
+    | with Employee::withQdnRoster() when reading many rows.
+    */
+
+    public const QDN_ROSTER_RELATIONS = [
+        'currentDepartment.department',
+        'currentPosition.position',
+        'currentPositionLevel.positionLevel',
+        'currentStation.station',
+        'currentProductionLine.productionLine',
+        'currentTeam.team',
+    ];
+
+    public function scopeWithQdnRoster($query)
+    {
+        return $query->with(self::QDN_ROSTER_RELATIONS);
+    }
+
+    public function getEMPLOYIDAttribute()
+    {
+        return $this->attributes['employid'] ?? null;
+    }
+
+    public function getEMPLOYNAMEAttribute(): ?string
+    {
+        $name = trim(implode(' ', array_filter([
+            $this->attributes['firstname'] ?? null,
+            $this->attributes['middlename'] ?? null,
+            $this->attributes['lastname'] ?? null,
+        ])));
+
+        return $name !== '' ? $name : null;
+    }
+
+    public function getDEPARTMENTAttribute(): ?string
+    {
+        return $this->currentDepartment?->department?->dep_name;
+    }
+
+    // Job title = position (Lookups\Position::emp_position_name).
+    public function getJOBTITLEAttribute(): ?string
+    {
+        return $this->currentPosition?->position?->emp_position_name;
+    }
+
+    // Lookups\PositionLevel::position_level_name.
+    public function getPOSITIONLEVELAttribute(): ?string
+    {
+        return $this->currentPositionLevel?->positionLevel?->position_level_name;
+    }
+
+    public function getSTATIONAttribute(): ?string
+    {
+        return $this->currentStation?->station?->station_name;
+    }
+
+    public function getPRODLINEAttribute(): ?string
+    {
+        return $this->currentProductionLine?->productionLine?->pl_name;
+    }
+
+    public function getTEAMAttribute(): ?string
+    {
+        return $this->currentTeam?->team?->team_name;
+    }
+
+    public function toQdnRoster(): array
+    {
+        return [
+            'EMPLOYID'   => $this->EMPLOYID,
+            'EMPLOYNAME' => $this->EMPLOYNAME,
+            'DEPARTMENT' => $this->DEPARTMENT,
+            'JOB_TITLE'  => $this->JOB_TITLE,
+            'POSITION_LEVEL' => $this->POSITION_LEVEL,
+            'STATION'    => $this->STATION,
+            'PRODLINE'   => $this->PRODLINE,
+            'TEAM'       => $this->TEAM,
+        ];
+    }
 }

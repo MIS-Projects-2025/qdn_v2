@@ -42,6 +42,11 @@ return [
 
     'authify' => [
         'base_url'  => env('AUTHIFY_BASE_URL'),
-        'portal_id' => env('AUTHIFY_PORTAL_ID', 'template'), // <-- add this line
+        'portal_id' => env('AUTHIFY_PORTAL_ID', 'qdn'),
+    ],
+
+    'internal' => [
+        // Server-to-server calls carrying X-Internal-Key skip AuthMiddleware.
+        'key' => env('INTERNAL_API_KEY'),
     ],
 ];

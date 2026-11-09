@@ -11,6 +11,10 @@ import axios from "axios";
 import { PhoneCall } from "lucide-react";
 
 const IDLE_LIMIT_MS = 60 * 60 * 1000;
+// How often to ask the server whether this session is still valid/locked.
+// Was 1s, which floods the Network tab and the Authify DB with one
+// /session/check per second per open tab.
+const SESSION_POLL_MS = 15 * 1000;
 
 export default function AuthenticatedLayout({ children }) {
     const { emp_data } = usePage().props;
@@ -184,6 +188,8 @@ export default function AuthenticatedLayout({ children }) {
         // invalidated elsewhere (another tab closed, logout happened on a
         // different portal) without requiring the user to click anything.
         const pollInterval = setInterval(async () => {
+            // Background tabs don't need to poll; they catch up on focus.
+            if (document.visibilityState !== "visible") return;
             const mySeq = ++pollSeqRef.current;
             try {
                 const res = await fetch(route("session.check"), {
@@ -226,7 +232,7 @@ export default function AuthenticatedLayout({ children }) {
             } catch (e) {
                 // network hiccup — don't force a logout on a transient error
             }
-        }, 1000);
+        }, SESSION_POLL_MS);
 
         return () => {
             window.removeEventListener("pagehide", handlePageHide);
@@ -287,9 +293,9 @@ export default function AuthenticatedLayout({ children }) {
                         <span />
                     )} */}
                     <span className="text-[10px] text-red-500 dark:text-red-600 flex items-center gap-1">
-                        Developed by: Dhawines
+                        Developed by: Leng
                         <PhoneCall className="w-3 h-3 inline-block align-middle" />
-                        09352550788
+                        09563317640
                     </span>
                 </footer>
             </div>

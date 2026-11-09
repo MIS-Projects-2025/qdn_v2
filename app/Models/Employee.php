@@ -1,5 +1,8 @@
 <?php
 
+// Masterlist `login` account (password / profile). Not used for QDN
+// employee lookups -- see App\Models\Masterlist\Employee.
+
 namespace App\Models;
 
 use Illuminate\Auth\Authenticatable;
@@ -45,6 +48,21 @@ class Employee extends Model implements AuthenticatableContract
     public function getRememberTokenName()
     {
         return '';
+    }
+
+    /**
+     * Departments via masterlist.employee_department (used by ProfileController).
+     */
+    public function departments()
+    {
+        return $this->belongsToMany(
+            \App\Models\Lookups\Department::class,
+            'employee_department',
+            'employid',
+            'department_id',
+            'EMPLOYID',
+            'id'
+        );
     }
 
     public function details()

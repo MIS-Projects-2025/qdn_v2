@@ -16,7 +16,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'worksched'),
+    'default' => env('DB_CONNECTION', 'mysql'),
 
     /*
     |--------------------------------------------------------------------------
@@ -42,7 +42,7 @@ return [
             'synchronous' => null,
         ],
 
-        'worksched' => [
+        'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -64,7 +64,7 @@ return [
 
         'masterlist' => [
             'driver' => 'mysql',
-            'url' => env('ADB_URL'),
+            'url' => env('MDB_URL'),
             'host' => env('MDB_HOST', '127.0.0.1'),
             'port' => env('MDB_PORT', '3306'),
             'database' => env('MDB_DATABASE', 'laravel'),
@@ -73,6 +73,28 @@ return [
             'unix_socket' => env('MDB_SOCKET', ''),
             'charset' => env('MDB_CHARSET', 'utf8mb4'),
             'collation' => env('MDB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        // Legacy QDN database (qdn_db): App\Models\QdnRecord (Legacy Records
+        // page) and the qdn:copy-lookup-tables command read from here.
+        'tspi_qa' => [
+            'driver' => 'mysql',
+            'url' => env('QDB_URL'),
+            'host' => env('QDB_HOST', '127.0.0.1'),
+            'port' => env('QDB_PORT', '3306'),
+            'database' => env('QDB_DATABASE', 'qdn_db'),
+            'username' => env('QDB_USERNAME', 'root'),
+            'password' => env('QDB_PASSWORD', ''),
+            'unix_socket' => env('QDB_SOCKET', ''),
+            'charset' => env('QDB_CHARSET', 'utf8mb4'),
+            'collation' => env('QDB_COLLATION', 'utf8mb4_unicode_ci'),
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,

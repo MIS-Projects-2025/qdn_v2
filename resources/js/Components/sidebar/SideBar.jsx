@@ -167,19 +167,16 @@ export default function Sidebar() {
                             </div>
 
                             {isSidebarOpen && (
-                                <div className="flex flex-col min-w-0">
-                                    <span
-                                        className="text-sm font-semibold tracking-tight leading-tight truncate
-                                        text-foreground"
-                                    >
+                                <div className="flex flex-col min-w-0 gap-1">
+                                    <span className="text-sm font-semibold tracking-tight leading-tight truncate text-foreground">
                                         {formattedAppName}
                                     </span>
-                                    <span
-                                        className="text-[7px] font-medium tracking-widest uppercase
-                                        text-primary/70"
-                                    >
-                                        Workspace
-                                    </span>
+
+                                    <img
+                                        src="/images/telford_logo.jpg"
+                                        alt="TELFORD Logo"
+                                        className="h-5 w-auto object-contain object-left"
+                                    />
                                 </div>
                             )}
                         </Link>
