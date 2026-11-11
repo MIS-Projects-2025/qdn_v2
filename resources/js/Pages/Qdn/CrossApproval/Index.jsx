@@ -26,7 +26,7 @@ export function ApprovalChips({ approvals }) {
     );
 }
 
-export default function CrossApprovalIndex({ qdns, myDepartmentKey, departments }) {
+export default function CrossApprovalIndex({ qdns, myDepartmentKey, myIssuingDepartment, departments }) {
     const myLabel = myDepartmentKey ? departments[myDepartmentKey] : null;
 
     return (
@@ -37,8 +37,13 @@ export default function CrossApprovalIndex({ qdns, myDepartmentKey, departments 
             <p className="qdn-page-subtitle">
                 After Dept Approval, one Supervisor, Section Head or Manager from each of Process
                 Engineering, Equipment Engineering, QA and Production approves. The first approver in each
-                department counts for that department.
-                {myLabel ? ` You approve for ${myLabel}.` : " You can view this queue but not approve."}
+                department counts for that department. For Customer: Others QDNs, the department that
+                raised the QDN (Issuing Dept) must also approve.
+                {myLabel
+                    ? ` You approve for ${myLabel}.`
+                    : myIssuingDepartment
+                      ? ` You approve for ${myIssuingDepartment} on Customer: Others QDNs it raised.`
+                      : " You can view this queue but not approve."}
             </p>
 
             <div className="qdn-table-scroll">
@@ -59,7 +64,7 @@ export default function CrossApprovalIndex({ qdns, myDepartmentKey, departments 
                             </tr>
                         ) : (
                             qdns.map((q) => {
-                                const mineDone = myDepartmentKey && q.approvals[myDepartmentKey]?.approved;
+                                const mineDone = q.my_key && q.approvals[q.my_key]?.approved;
                                 return (
                                     <tr key={q.id}>
                                         <td><strong>{q.qdn_no}</strong></td>
@@ -70,7 +75,7 @@ export default function CrossApprovalIndex({ qdns, myDepartmentKey, departments 
                                             <Link href={`/qdn/cross-approval/${q.id}`} className="qdn-icon-link" title="Open">
                                                 <Users size={16} />
                                                 <span style={{ marginLeft: 6 }}>
-                                                    {myDepartmentKey && !mineDone ? "Approve" : "View"}
+                                                    {q.my_key && !mineDone ? "Approve" : "View"}
                                                 </span>
                                             </Link>
                                         </td>

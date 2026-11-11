@@ -50,7 +50,16 @@ class HandleInertiaRequests extends Middleware
                 'isQa'       => CurrentEmployee::isQa(),
                 'isApprover' => CurrentEmployee::isApprover(),
                 'canAnswerRcaOrCapa' => CurrentEmployee::canAnswerRcaOrCapa(),
-                'crossApprovalDepartment' => CurrentEmployee::crossApprovalDepartmentKey(),
+                // Fixed key (pe/ee/qa/prod), or "other" for a Supervisor+ of
+                // another department while a Customer: Others QDN it raised
+                // is at this step.
+                'crossApprovalDepartment' => CurrentEmployee::crossApprovalDepartmentKey()
+                    ?? (rescue(fn () => ($dept = CurrentEmployee::otherIssuingDepartment())
+                        && \App\Models\QdnCrossApproval::scopeIssuedByDepartment(
+                            \App\Models\Qdn::where('status', \App\Models\Qdn::STATUS_FOR_CROSS_APPROVAL), $dept
+                        )->exists(), false, report: true) ? \App\Models\QdnCrossApproval::DEPT_OTHER : null),
+                // Maintenance (lookup lists): QA / QMS, plus app admins.
+                'canMaintain' => \App\Http\Middleware\QdnMaintenanceMiddleware::allowed(),
             ] : null,
             'qdnCounts' => fn() => session('emp_data')
                 ? rescue(fn() => QdnNotificationCounts::forCurrentEmployee(), null, report: true)
@@ -59,6 +68,11 @@ class HandleInertiaRequests extends Middleware
                 ? app(SystemStatusService::class)->getCurrent()->only(['status', 'message'])
                 : null,
             'appName' => config('app.name'), // This pulls from .env
+            // Company logo in public/telford_logo.jpg (same file as the browser tab
+            // icon). asset() builds the full URL, including the /qdn_v2
+            // sub-folder, so it loads on every page. null when the file is
+            // missing, so the sidebar shows text instead of a broken image.
+            'logo_url' => file_exists(public_path('telford_logo.jpg')) ? asset('telford_logo.jpg') : null,
             'display_name' => env('APP_DISPLAY_NAME', ''),
         ];
     }

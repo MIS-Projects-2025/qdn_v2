@@ -10,7 +10,8 @@ const CLASSIFICATIONS = ["Minor", "Major", "Critical"];
 /**
  * Step 1 — Create QDN.
  * Props (from QdnController@create):
- *   customers, machines, locations, nonconformities, issuedByName
+ *   customers, machines, locations, nonconformities, issuedByName,
+ *   departments (Customer: Others -- Issued Department choices)
  */
 export default function Create({
     customers,
@@ -18,6 +19,7 @@ export default function Create({
     locations,
     nonconformities,
     issuedByName,
+    departments = [],
 }) {
     const { data, setData, post, processing, errors, reset, transform } = useForm({
         customer_id: "",
@@ -38,6 +40,9 @@ export default function Create({
         // Issued To fields -- QdnController@store re-resolves all of them
         // itself from issued_to_employee_id via Employee::find(), never
         // trusting these from the request.
+        // Customer: Others -- picked first, then limits the Issued To
+        // search to that department (HR, MIS, Facility, Store, ...).
+        issued_department: "",
         issued_to_employee_id: "",
         issued_to_name: "",
         department: "",
@@ -85,9 +90,10 @@ export default function Create({
     // changed away from "Others" -- avoids silently resubmitting a stale
     // Issued To that's no longer visible on the form.
     useEffect(() => {
-        if (!isOthers && data.issued_to_employee_id) {
+        if (!isOthers && (data.issued_to_employee_id || data.issued_department)) {
             setData((prev) => ({
                 ...prev,
+                issued_department: "",
                 issued_to_employee_id: "",
                 issued_to_name: "",
                 department: "",
@@ -98,6 +104,38 @@ export default function Create({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOthers]);
+
+    // Customer: Others hides Lot ID / Lot Qty / Device Name / Package
+    // Name / Machine No entirely -- clear anything typed before switching
+    // so the server saves its defaults (N/A, Lot Qty 0, no machine).
+    useEffect(() => {
+        if (isOthers) {
+            setData((prev) => ({
+                ...prev,
+                lot_id: "",
+                lot_qty: "",
+                device_name: "",
+                package_name: "",
+                machine_id: "",
+            }));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOthers]);
+
+    // Changing the Issued Department clears a previously-picked Issued To
+    // from another department.
+    function handleDepartmentChange(value) {
+        setData((prev) => ({
+            ...prev,
+            issued_department: value,
+            issued_to_employee_id: "",
+            issued_to_name: "",
+            department: "",
+            station: "",
+            prodline: "",
+            team: "",
+        }));
+    }
 
     function handleEmployeeSelect(employee) {
         setData((prev) => ({
@@ -199,95 +237,99 @@ export default function Create({
                     )}
                     {isOthers && (
                         <p className="qdn-hint">
-                            Lot ID, Lot Qty, Device Name, Package Name, and
-                            Machine No can be left blank for Others -- blank
-                            ones are saved as "N/A" (Lot Qty as 0).
+                            Lot ID, Lot Qty, Device Name, Package Name and
+                            Machine No are not needed for Others -- they are
+                            saved as "N/A" (Lot Qty as 0).
                         </p>
                     )}
                 </div>
 
-                <div className="qdn-field">
-                    <label htmlFor="lot_id">
-                        Lot ID{isOthers ? " (optional)" : ""}
-                    </label>
-                    <input
-                        id="lot_id"
-                        type="text"
-                        value={data.lot_id}
-                        onChange={(e) => setData("lot_id", e.target.value)}
-                    />
-                    {errors.lot_id && (
-                        <p className="qdn-field-error">{errors.lot_id}</p>
-                    )}
-                </div>
+                {!isOthers && (
+                    <>
+                    <div className="qdn-field">
+                        <label htmlFor="lot_id">
+                            Lot ID
+                        </label>
+                        <input
+                            id="lot_id"
+                            type="text"
+                            value={data.lot_id}
+                            onChange={(e) => setData("lot_id", e.target.value)}
+                        />
+                        {errors.lot_id && (
+                            <p className="qdn-field-error">{errors.lot_id}</p>
+                        )}
+                    </div>
 
-                <div className="qdn-field">
-                    <label htmlFor="lot_qty">
-                        Lot Qty{isOthers ? " (optional)" : ""}
-                    </label>
-                    <input
-                        id="lot_qty"
-                        type="number"
-                        min="1"
-                        value={data.lot_qty}
-                        onChange={(e) => setData("lot_qty", e.target.value)}
-                    />
-                    {errors.lot_qty && (
-                        <p className="qdn-field-error">{errors.lot_qty}</p>
-                    )}
-                </div>
+                    <div className="qdn-field">
+                        <label htmlFor="lot_qty">
+                            Lot Qty
+                        </label>
+                        <input
+                            id="lot_qty"
+                            type="number"
+                            min="1"
+                            value={data.lot_qty}
+                            onChange={(e) => setData("lot_qty", e.target.value)}
+                        />
+                        {errors.lot_qty && (
+                            <p className="qdn-field-error">{errors.lot_qty}</p>
+                        )}
+                    </div>
 
-                <div className="qdn-field">
-                    <label htmlFor="device_name">
-                        Device Name{isOthers ? " (optional)" : ""}
-                    </label>
-                    <input
-                        id="device_name"
-                        type="text"
-                        value={data.device_name}
-                        onChange={(e) => setData("device_name", e.target.value)}
-                        onBlur={handleDeviceNameBlur}
-                    />
-                    {errors.device_name && (
-                        <p className="qdn-field-error">{errors.device_name}</p>
-                    )}
-                </div>
+                    <div className="qdn-field">
+                        <label htmlFor="device_name">
+                            Device Name
+                        </label>
+                        <input
+                            id="device_name"
+                            type="text"
+                            value={data.device_name}
+                            onChange={(e) => setData("device_name", e.target.value)}
+                            onBlur={handleDeviceNameBlur}
+                        />
+                        {errors.device_name && (
+                            <p className="qdn-field-error">{errors.device_name}</p>
+                        )}
+                    </div>
 
-                <div className="qdn-field">
-                    <label htmlFor="package_name">Package Name</label>
-                    <input
-                        id="package_name"
-                        type="text"
-                        value={
-                            packageLookupPending
-                                ? "Looking up…"
-                                : data.package_name
-                        }
-                        disabled
-                        readOnly
-                    />
-                </div>
+                    <div className="qdn-field">
+                        <label htmlFor="package_name">Package Name</label>
+                        <input
+                            id="package_name"
+                            type="text"
+                            value={
+                                packageLookupPending
+                                    ? "Looking up…"
+                                    : data.package_name
+                            }
+                            disabled
+                            readOnly
+                        />
+                    </div>
 
-                <div className="qdn-field">
-                    <label htmlFor="machine_id">
-                        Machine No{isOthers ? " (optional)" : ""}
-                    </label>
-                    <select
-                        id="machine_id"
-                        value={data.machine_id}
-                        onChange={(e) => setData("machine_id", e.target.value)}
-                    >
-                        <option value="">-- Select Machine --</option>
-                        {machines.map((m) => (
-                            <option key={m.id} value={m.id}>
-                                {m.machine_num}
-                            </option>
-                        ))}
-                    </select>
-                    {errors.machine_id && (
-                        <p className="qdn-field-error">{errors.machine_id}</p>
-                    )}
-                </div>
+                    <div className="qdn-field">
+                        <label htmlFor="machine_id">
+                            Machine No
+                        </label>
+                        <select
+                            id="machine_id"
+                            value={data.machine_id}
+                            onChange={(e) => setData("machine_id", e.target.value)}
+                        >
+                            <option value="">-- Select Machine --</option>
+                            {machines.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                    {m.machine_num}
+                                </option>
+                            ))}
+                        </select>
+                        {errors.machine_id && (
+                            <p className="qdn-field-error">{errors.machine_id}</p>
+                        )}
+                    </div>
+                    </>
+                )}
 
                 <div className="qdn-field">
                     <label htmlFor="location_id">Detection Area</label>
@@ -393,10 +435,42 @@ export default function Create({
                 {isOthers && (
                     <>
                         <div className="qdn-field">
+                            <label htmlFor="issued_department">
+                                Issued Department
+                            </label>
+                            <select
+                                id="issued_department"
+                                value={data.issued_department}
+                                onChange={(e) =>
+                                    handleDepartmentChange(e.target.value)
+                                }
+                            >
+                                <option value="">-- Select Department --</option>
+                                {departments.map((d) => (
+                                    <option key={d} value={d}>
+                                        {d}
+                                    </option>
+                                ))}
+                            </select>
+                            {errors.issued_department && (
+                                <p className="qdn-field-error">
+                                    {errors.issued_department}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="qdn-field">
                             <label htmlFor="issued_to_employee_id">
                                 Issued To
                             </label>
                             <EmployeeSearchSelect
+                                department={data.issued_department || undefined}
+                                disabled={!data.issued_department}
+                                placeholder={
+                                    data.issued_department
+                                        ? `Search ${data.issued_department} by ID or name…`
+                                        : "Select a department first"
+                                }
                                 value={
                                     data.issued_to_employee_id
                                         ? {
@@ -410,11 +484,11 @@ export default function Create({
                                 onChange={handleEmployeeSelect}
                             />
                             <p className="qdn-hint">
-                                Customer is "Others" -- there's no customer
-                                record to route this to a department
-                                automatically, so select who it's issued to.
-                                This QDN will skip PE Validation and go straight
-                                to that employee's department for RCA.
+                                Customer is "Others" -- pick the department
+                                (HR, MIS, Facility, Store, Finance, Purchasing,
+                                MRM, ...) and who it's issued to. This QDN skips
+                                PE Validation and goes straight to that
+                                department for RCA, then the normal approvals.
                             </p>
                             {errors.issued_to_employee_id && (
                                 <p className="qdn-field-error">
@@ -481,7 +555,10 @@ export default function Create({
                 <button
                     type="submit"
                     disabled={
-                        processing || (isOthers && !data.issued_to_employee_id)
+                        processing ||
+                        (isOthers &&
+                            (!data.issued_department ||
+                                !data.issued_to_employee_id))
                     }
                 >
                     Submit

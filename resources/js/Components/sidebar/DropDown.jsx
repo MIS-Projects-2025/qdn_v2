@@ -41,7 +41,7 @@ export default function Dropdown({
                 onClick={() => setOpen(!open)}
                 className={`relative flex items-center justify-between w-full px-3 py-2.5 mx-2 rounded-xl transition-all duration-200 text-sm font-medium border ${
                     parentActive
-                        ? "bg-primary/10 text-primary border-primary/20 font-semibold"
+                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 font-semibold"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent border-transparent"
                 }`}
                 style={{ width: "calc(100% - 1rem)" }}
@@ -49,7 +49,7 @@ export default function Dropdown({
                 <div className="flex items-center space-x-3">
                     {icon && (
                         <span
-                            className={`flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center ${parentActive ? "text-primary" : "text-muted-foreground"}`}
+                            className={`flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center ${parentActive ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}
                         >
                             {icon}
                         </span>
@@ -87,7 +87,7 @@ export default function Dropdown({
                                 href={link.href}
                                 className={`relative flex items-center justify-start w-full pl-6 pr-4 py-2 rounded-xl transition-all duration-200 text-sm font-medium border ${
                                     active
-                                        ? "bg-primary/10 text-primary border-primary/20 font-semibold"
+                                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 font-semibold"
                                         : "text-muted-foreground hover:text-foreground hover:bg-accent border-transparent"
                                 }`}
                             >
@@ -96,17 +96,17 @@ export default function Dropdown({
                                     className="absolute left-[5px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 transition-colors duration-200"
                                     style={{
                                         backgroundColor: active
-                                            ? "hsl(var(--primary))"
+                                            ? "rgb(245 158 11)"
                                             : "hsl(var(--border))",
                                         borderColor: active
-                                            ? "hsl(var(--primary))"
+                                            ? "rgb(245 158 11)"
                                             : "hsl(var(--muted-foreground))",
                                     }}
                                 />
 
                                 {link.icon && (
                                     <span
-                                        className={`mr-2 flex-shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`}
+                                        className={`mr-2 flex-shrink-0 ${active ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}
                                     >
                                         {link.icon}
                                     </span>

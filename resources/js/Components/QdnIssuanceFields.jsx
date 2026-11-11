@@ -73,6 +73,15 @@ export const DISPOSITIONS = [
 ];
 
 /**
+ * Customer: Others QDNs skip PE Validation (the issuer picks Issued To on
+ * Create QDN), so they never get a PE disposition. Same case-insensitive,
+ * trimmed match as QdnController::customerIsOthers().
+ */
+export function isOthersQdn(qdn) {
+    return (qdn?.customer_name ?? "").trim().toLowerCase() === "others";
+}
+
+/**
  * PE Validation result in the same read-only form layout, with the
  * Disposition shown as the same checkbox row PE ticks on PE Validation.
  */
@@ -80,8 +89,10 @@ export function QdnValidationFields({ qdn }) {
     const v = qdn.validation ?? {};
     const by = v.validated_by ?? qdn.pe_disposition_by;
     const at = v.validated_at ?? qdn.pe_disposition_at;
+    const others = isOthersQdn(qdn);
     return (
         <div className="qdn-form qdn-form-readonly">
+            {!others && (
             <div className="qdn-field qdn-field-wide">
                 <label>Disposition</label>
                 <div className="qdn-checkbox-row qdn-checkbox-row-wrap">
@@ -93,13 +104,14 @@ export function QdnValidationFields({ qdn }) {
                     ))}
                 </div>
             </div>
+            )}
             <ReadOnly label="Issued To" value={v.issued_to_name} />
             <ReadOnly label="Department" value={v.department ?? qdn.issued_department} />
             <ReadOnly label="Station" value={v.station} />
             <ReadOnly label="Product Line" value={v.prodline} />
             <ReadOnly label="Team Responsible" value={v.team} />
-            <ReadOnly label="Validated By" value={by} />
-            <ReadOnly label="Validated At" value={at ? new Date(at).toLocaleString() : ""} />
+            <ReadOnly label={others ? "Issued By" : "Validated By"} value={by} />
+            <ReadOnly label={others ? "Issued At" : "Validated At"} value={at ? new Date(at).toLocaleString() : ""} />
             <div className="qdn-field qdn-field-wide">
                 <label>Remarks</label>
                 <textarea value={v.remarks ?? qdn.pe_disposition_remarks ?? ""} disabled readOnly />

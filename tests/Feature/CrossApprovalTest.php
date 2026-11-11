@@ -145,4 +145,61 @@ class CrossApprovalTest extends TestCase
             ->assertRedirect("/qdn/records/{$this->qdnId}")
             ->assertSessionHas('success');
     }
+
+    public function test_customer_others_adds_issuing_department_as_fifth_approver(): void
+    {
+        Schema::table('qdns', fn (Blueprint $t) => $t->string('issuing_department')->nullable());
+        // Raised by Facilities, issued to Production, Customer: Others.
+        DB::table('qdns')->where('id', $this->qdnId)->update([
+            'status' => 'for_cross_approval', 'customer_name' => 'Others', 'issuing_department' => 'Facilities',
+        ]);
+
+        $this->as('7001', 'Fay Fac', 'Facilities Supervisor', 'Facilities')
+            ->get('/qdn/cross-approval')
+            ->assertInertia(fn (Assert $p) => $p
+                ->where('myIssuingDepartment', 'Facilities')
+                ->where('qdns.0.my_key', 'other')
+                ->where('qdns.0.approvals.other.label', 'Facilities (Issuing Dept)')
+                ->where('qdnCounts.crossApproval', 1)
+                ->where('qdnRoles.crossApprovalDepartment', 'other'));
+
+        // A supervisor of an unrelated department can't approve it.
+        $this->as('8001', 'Gus HR', 'HR Supervisor', 'Human Resources')
+            ->post("/qdn/cross-approval/{$this->qdnId}")->assertForbidden();
+        $this->as('8001', 'Gus HR', 'HR Supervisor', 'Human Resources')
+            ->get('/qdn/cross-approval')
+            ->assertInertia(fn (Assert $p) => $p->where('qdnCounts.crossApproval', 0)->where('qdnRoles.crossApprovalDepartment', null));
+
+        foreach ([['3001', 'PE Supervisor', 'Process Engineering'], ['4001', 'EE Manager', 'Equipment Engineering'],
+                  ['5001', 'QA Supervisor', 'Quality Assurance'], ['6001', 'Production Manager', 'Production']] as [$id, $title, $dept]) {
+            $this->as($id, $id, $title, $dept)->post("/qdn/cross-approval/{$this->qdnId}")->assertRedirect();
+        }
+        // Four fixed approvals are not enough: still waiting on Facilities.
+        $this->assertSame('for_cross_approval', $this->qdnStatus());
+
+        $this->as('7001', 'Fay Fac', 'Facilities Supervisor', 'Facilities')
+            ->post("/qdn/cross-approval/{$this->qdnId}")->assertRedirect();
+        $this->assertSame('for_qa_verification', $this->qdnStatus());
+        $this->assertSame('other', DB::table('qdn_cross_approvals')->where('approved_by_employee_id', '7001')->value('department_key'));
+    }
+
+    public function test_no_fifth_approver_for_other_customers_or_fixed_issuing_department(): void
+    {
+        Schema::table('qdns', fn (Blueprint $t) => $t->string('issuing_department')->nullable());
+        // Normal customer raised by Facilities: four approvers only.
+        DB::table('qdns')->where('id', $this->qdnId)->update([
+            'status' => 'for_cross_approval', 'customer_name' => 'Acme', 'issuing_department' => 'Facilities',
+        ]);
+        $this->as('3001', 'Ana PE', 'PE Supervisor', 'Process Engineering')
+            ->get("/qdn/cross-approval/{$this->qdnId}")
+            ->assertInertia(fn (Assert $p) => $p->has('approvals', 4)->missing('approvals.other'));
+        $this->as('7001', 'Fay Fac', 'Facilities Supervisor', 'Facilities')
+            ->post("/qdn/cross-approval/{$this->qdnId}")->assertForbidden();
+
+        // Others raised by Production: Production already approves, no fifth card.
+        DB::table('qdns')->where('id', $this->qdnId)->update(['customer_name' => 'Others', 'issuing_department' => 'Production']);
+        $this->as('3001', 'Ana PE', 'PE Supervisor', 'Process Engineering')
+            ->get("/qdn/cross-approval/{$this->qdnId}")
+            ->assertInertia(fn (Assert $p) => $p->has('approvals', 4));
+    }
 }

@@ -74,18 +74,54 @@ class StoreQdnRequest extends FormRequest
                 $isOthers ? 'required' : 'nullable',
                 'string',
             ],
+            // Customer: Others -- the department picked on Create QDN.
+            // Only used to narrow the Issued To search; routing still
+            // follows the selected employee's own department (see
+            // withValidator() below, which rejects a mismatch).
+            'issued_department' => [
+                $isOthers ? 'required' : 'nullable',
+                'string',
+                'max:150',
+            ],
         ];
     }
 
     public function messages(): array
     {
         return [
+            'issued_department.required' => 'Select the Issued Department (required when Customer is Others).',
             'issued_to_employee_id.required' => 'Select who this QDN is issued to (required when Customer is Others).',
             'photos.required' => 'Upload at least one JPG photo for Final Visual Inspection / OQA.',
             'photos.*.mimes' => 'Photos must be JPG files.',
             'photos.*.max' => 'Each photo must be 10 MB or smaller.',
             'photos.max' => 'Upload at most 10 photos.',
         ];
+    }
+
+    /**
+     * Customer: Others -- the Issued To employee must belong to the
+     * Issued Department that was picked, so the QDN lands in the queue
+     * the issuer expects.
+     */
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            if (!$this->customerIsOthers()) {
+                return;
+            }
+            $department = trim((string) $this->input('issued_department'));
+            $employeeId = $this->input('issued_to_employee_id');
+            if ($department === '' || !$employeeId) {
+                return;
+            }
+            $employee = \App\Models\Masterlist\Employee::find($employeeId);
+            if ($employee && strcasecmp(trim((string) $employee->DEPARTMENT), $department) !== 0) {
+                $validator->errors()->add(
+                    'issued_to_employee_id',
+                    "{$employee->EMPLOYNAME} is in {$employee->DEPARTMENT}, not {$department}."
+                );
+            }
+        });
     }
 
     /**

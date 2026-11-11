@@ -12,6 +12,7 @@ import {
     LineChart,
     Users,
     Camera,
+    Wrench,
 } from "lucide-react";
 
 const icon = (Icon) => <Icon className="w-5 h-5" />;
@@ -51,6 +52,18 @@ export default function NavLinks({ isSidebarOpen }) {
     const recordLinks = [
         { href: route("qdn.records.index"), label: "QDN Records" },
         { href: route("qdn.legacy-records.index"), label: "Legacy Records" },
+    ];
+
+    // Maintenance: QA / QMS only (qdnRoles.canMaintain). One page with a
+    // tab per list; these links open it on the matching tab.
+    const maintenanceLinks = [
+        { href: route("qdn.maintenance.index", "root-causes"), label: "Root Cause List" },
+        { href: route("qdn.maintenance.index", "specs"), label: "Specs List" },
+        { href: route("qdn.maintenance.index", "violations"), label: "Violation List" },
+        { href: route("qdn.maintenance.index", "defects"), label: "Defect List" },
+        { href: route("qdn.maintenance.index", "locations"), label: "Location List" },
+        { href: route("qdn.maintenance.index", "customers"), label: "Customer List" },
+        { href: route("qdn.maintenance.index", "nonconformities"), label: "Non-conformity List" },
     ];
 
     return (
@@ -134,6 +147,15 @@ export default function NavLinks({ isSidebarOpen }) {
                 links={recordLinks}
                 isSidebarOpen={isSidebarOpen}
             />
+
+            {roles.canMaintain && (
+                <Dropdown
+                    label="Maintenance"
+                    icon={icon(Wrench)}
+                    links={maintenanceLinks}
+                    isSidebarOpen={isSidebarOpen}
+                />
+            )}
         </nav>
     );
 }

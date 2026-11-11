@@ -11,6 +11,8 @@ use App\Http\Controllers\QdnPhotoController;
 use App\Http\Controllers\QdnReassignController;
 use App\Http\Controllers\QdnWorkflowController;
 use App\Http\Controllers\LegacyQdnRecordController;
+use App\Http\Controllers\LookupMaintenanceController;
+use App\Http\Middleware\QdnMaintenanceMiddleware;
 use App\Http\Middleware\AuthMiddleware;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -151,6 +153,22 @@ Route::middleware(AuthMiddleware::class)->group(function () {
     Route::get('/qdn/legacy-records/{qdnRecord}', [LegacyQdnRecordController::class, 'show'])->name('qdn.legacy-records.show');
 });
 
+
+// --- Maintenance: lookup lists (QA / QMS only) ---------------------------
+// Root Cause, Specs, Violation, Defect, Location, Customer and
+// Non-conformity lists. {list} is one of the keys in
+// LookupMaintenanceController::LISTS. QdnMaintenanceMiddleware lets in
+// the Quality Assurance and Quality Management System departments (plus
+// app admins).
+Route::middleware([AuthMiddleware::class, QdnMaintenanceMiddleware::class])
+    ->prefix('/qdn/maintenance')
+    ->name('qdn.maintenance.')
+    ->group(function () {
+        Route::get('/{list?}', [LookupMaintenanceController::class, 'index'])->name('index');
+        Route::post('/{list}', [LookupMaintenanceController::class, 'store'])->name('store');
+        Route::put('/{list}/{id}', [LookupMaintenanceController::class, 'update'])->whereNumber('id')->name('update');
+        Route::delete('/{list}/{id}', [LookupMaintenanceController::class, 'destroy'])->whereNumber('id')->name('destroy');
+    });
 
 Route::fallback(function () {
     return Inertia::render('404');

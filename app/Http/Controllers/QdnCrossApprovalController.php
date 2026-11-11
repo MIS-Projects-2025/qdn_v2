@@ -30,7 +30,7 @@ class QdnCrossApprovalController extends Controller
         $qdns = Qdn::where('status', Qdn::STATUS_FOR_CROSS_APPROVAL)
             ->with('crossApprovals')
             ->orderBy('created_at')
-            ->get(['id', 'qdn_no', 'customer_name', 'device_name', 'classification', 'issued_department', 'capa_round', 'status', 'created_at'])
+            ->get(['id', 'qdn_no', 'customer_name', 'device_name', 'classification', 'issued_department', 'issuing_department', 'capa_round', 'status', 'created_at'])
             ->map(fn (Qdn $qdn) => [
                 'id' => $qdn->id,
                 'qdn_no' => $qdn->qdn_no,
@@ -40,11 +40,14 @@ class QdnCrossApprovalController extends Controller
                 'issued_department' => $qdn->issued_department,
                 'created_at' => $qdn->created_at,
                 'approvals' => $this->approvalSummary($qdn),
+                // Per QDN: "other" only on Customer: Others QDNs my department raised.
+                'my_key' => CurrentEmployee::crossApprovalDepartmentKeyFor($qdn),
             ]);
 
         return Inertia::render('Qdn/CrossApproval/Index', [
             'qdns' => $qdns,
             'myDepartmentKey' => $myKey,
+            'myIssuingDepartment' => $myKey ? null : CurrentEmployee::otherIssuingDepartment(),
             'departments' => $this->departmentLabels(),
         ]);
     }
@@ -54,7 +57,7 @@ class QdnCrossApprovalController extends Controller
         $this->redirectIfNotAt($qdn, Qdn::STATUS_FOR_CROSS_APPROVAL, 'PE / EE / QA / Production approval');
 
         $qdn->load(['validation', 'rcaCauses', 'capaContainmentLots', 'capaCorrections', 'capaReturns', 'crossApprovals']);
-        $myKey = CurrentEmployee::crossApprovalDepartmentKey();
+        $myKey = CurrentEmployee::crossApprovalDepartmentKeyFor($qdn);
         $approvals = $this->approvalSummary($qdn);
 
         return Inertia::render('Qdn/CrossApproval/Show', [
@@ -62,6 +65,12 @@ class QdnCrossApprovalController extends Controller
             'approvals' => $approvals,
             'myDepartmentKey' => $myKey,
             'canApprove' => $myKey !== null && ($approvals[$myKey]['approved'] ?? false) === false,
+            // Shown under "Your approval" when the account can't approve,
+            // so it's clear which department / titles the app read.
+            'viewer' => [
+                'department' => CurrentEmployee::department(),
+                'titles' => CurrentEmployee::titleCandidates(),
+            ],
         ]);
     }
 
@@ -69,10 +78,10 @@ class QdnCrossApprovalController extends Controller
     {
         $data = $request->validate(['remarks' => ['nullable', 'string', 'max:2000']]);
 
-        $key = CurrentEmployee::crossApprovalDepartmentKey();
-        abort_if($key === null, 403, 'Only a Supervisor, Section Head or Manager of Process Engineering, Equipment Engineering, QA or Production can approve.');
+        $key = CurrentEmployee::crossApprovalDepartmentKeyFor($qdn);
+        abort_if($key === null, 403, 'Only a Supervisor, Section Head or Manager of Process Engineering, Equipment Engineering, QA, Production or the issuing department can approve.');
 
-        $label = QdnCrossApproval::departments()[$key]['label'];
+        $label = QdnCrossApproval::departmentsFor($qdn)[$key]['label'];
 
         $result = DB::transaction(function () use ($qdn, $key, $label, $data) {
             // Lock the QDN row so two departments finishing at the same
@@ -104,10 +113,14 @@ class QdnCrossApprovalController extends Controller
                 return ['already' => QdnCrossApproval::where(['qdn_id' => $qdn->id, 'round' => $round, 'department_key' => $key])->first()];
             }
 
+            // Every required approver for THIS QDN: the four fixed
+            // departments, plus the issuing department when it isn't one.
+            $required = array_keys(QdnCrossApproval::departmentsFor($qdn));
             $done = QdnCrossApproval::where('qdn_id', $qdn->id)->where('round', $round)
+                ->whereIn('department_key', $required)
                 ->distinct()->count('department_key');
 
-            if ($done >= count(QdnCrossApproval::departments())) {
+            if ($done >= count($required)) {
                 $qdn->update(['status' => Qdn::STATUS_FOR_QA_VERIFICATION]);
                 return ['complete' => true];
             }
@@ -121,7 +134,7 @@ class QdnCrossApprovalController extends Controller
         }
 
         return redirect()->route('qdn.cross-approval.index')->with('success', $result['complete']
-            ? "{$label} approved QDN {$qdn->qdn_no}. All four departments have approved, so it moved to QA Verification."
+            ? "{$label} approved QDN {$qdn->qdn_no}. All required departments have approved, so it moved to QA Verification."
             : "{$label} approved QDN {$qdn->qdn_no}. Waiting for the other departments.");
     }
 
@@ -136,7 +149,7 @@ class QdnCrossApprovalController extends Controller
         $round = (int) ($qdn->capa_round ?: 1);
         $rows = $qdn->crossApprovals->where('round', $round)->keyBy('department_key');
 
-        return collect(QdnCrossApproval::departments())->map(function ($dept, $key) use ($rows) {
+        return collect(QdnCrossApproval::departmentsFor($qdn))->map(function ($dept, $key) use ($rows) {
             $row = $rows->get($key);
             return [
                 'label' => $dept['label'],

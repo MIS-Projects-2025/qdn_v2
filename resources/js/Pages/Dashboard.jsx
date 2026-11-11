@@ -54,7 +54,7 @@ function Card({ title, subtitle, children, className = "" }) {
 function Stat({ label, value, icon: Icon }) {
     return (
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm flex items-center gap-4">
-            <div className="h-11 w-11 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+            <div className="h-11 w-11 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                 <Icon className="h-5 w-5" />
             </div>
             <div>

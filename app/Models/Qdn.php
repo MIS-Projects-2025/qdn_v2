@@ -34,6 +34,8 @@ class Qdn extends Model
         'status',
         'issued_department',
         'issued_by',
+        'issued_by_employee_id',
+        'issuing_department',
         'rca_details',
         'rca_submitted_by',
         'rca_submitted_at',

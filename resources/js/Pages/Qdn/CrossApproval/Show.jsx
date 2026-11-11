@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Head, router } from "@inertiajs/react";
-import { CheckCircle2, Clock } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import QdnDetailCard from "@/Components/QdnDetailCard";
 import BackLink from "@/Components/BackLink";
 
@@ -10,7 +10,7 @@ import BackLink from "@/Components/BackLink";
  * counts, and the card then shows who approved and when.
  * Props (QdnCrossApprovalController@show): qdn, approvals, myDepartmentKey, canApprove
  */
-export default function CrossApprovalShow({ qdn, approvals, myDepartmentKey, canApprove }) {
+export default function CrossApprovalShow({ qdn, approvals, myDepartmentKey, canApprove, viewer }) {
     const [remarks, setRemarks] = useState("");
     const [processing, setProcessing] = useState(false);
     const [error, setError] = useState(null);
@@ -34,11 +34,17 @@ export default function CrossApprovalShow({ qdn, approvals, myDepartmentKey, can
 
             <div className="qdn-cross-grid">
                 {Object.entries(approvals).map(([key, a]) => (
-                    <div key={key} className={`qdn-cross-card ${a.approved ? "is-approved" : "is-pending"}`}>
+                    <div
+                        key={key}
+                        className={`qdn-cross-card ${a.approved ? "is-approved" : "is-pending"}`}
+                        // Your department, still to approve: warning colors.
+                        style={key === myDepartmentKey && !a.approved
+                            ? { background: "#fef3c7", borderColor: "#f59e0b", color: "#92400e" }
+                            : undefined}
+                    >
                         <div className="qdn-cross-card-head">
-                            {a.approved ? <CheckCircle2 size={18} /> : <Clock size={18} />}
+                            {a.approved ? <CheckCircle2 size={18} /> : key === myDepartmentKey ? <AlertTriangle size={18} /> : <Clock size={18} />}
                             <strong>{a.label}</strong>
-                            {key === myDepartmentKey && <span className="qdn-cross-you">Your department</span>}
                         </div>
                         {a.approved ? (
                             <>
@@ -65,7 +71,11 @@ export default function CrossApprovalShow({ qdn, approvals, myDepartmentKey, can
                 {!myDepartmentKey && (
                     <p className="qdn-restricted-notice">
                         Only a Supervisor, Section Head or Manager of Process Engineering, Equipment
-                        Engineering, QA or Production can approve. You can view this QDN.
+                        Engineering, QA, Production (or, for Customer: Others, the issuing department) can approve. You can view this QDN.
+                        <br />
+                        Signed in as: {viewer?.department || "no department"}
+                        {" / "}
+                        {viewer?.titles?.length ? viewer.titles.join(", ") : "no job title"}
                     </p>
                 )}
                 {mine?.approved && (

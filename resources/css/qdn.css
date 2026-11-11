@@ -1732,3 +1732,74 @@ button.qdn-pagination-link:hover:not(:disabled):not(.is-active) {
 .qdn-issuance-form .qdn-form-readonly { margin-top: 8px; }
 .qdn-form-readonly + .qdn-form { margin-top: 16px; }
 .qdn-field textarea:disabled { background: #f3f4f6; color: #555; resize: none; }
+
+/* ---- Back link row + "Show menu" sidebar on QDN pages (BackLink.jsx) ---- */
+.qdn-back-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.qdn-back-row .qdn-back-link { margin-bottom: 0; }
+
+.qdn-sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    color: #374151;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.qdn-sidebar-toggle:hover { background: #f3f4f6; }
+
+.qdn-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 0;
+    overflow-y: auto;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.08);
+}
+.qdn-sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 16px 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.qdn-sidebar-close {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: inherit;
+}
+.qdn-sidebar-backdrop { display: none; }
+
+/* Wide screens: dock on the left and push the page over. */
+@media (min-width: 900px) {
+    body.qdn-sidebar-docked { padding-left: 260px; }
+}
+/* Narrow screens: slide over the page with a backdrop. */
+@media (max-width: 899px) {
+    .qdn-sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        background: rgba(0, 0, 0, 0.4);
+    }
+}

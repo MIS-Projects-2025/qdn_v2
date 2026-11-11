@@ -7,6 +7,7 @@ use App\Models\AnalogCalendar;
 use App\Models\Customer;
 use App\Models\Masterlist\Employee;
 use App\Models\Location;
+use App\Models\Lookups\Department;
 use App\Models\Machine;
 use App\Models\Nonconformity;
 use App\Models\Package;
@@ -57,6 +58,16 @@ class QdnController extends Controller
             // CurrentEmployee). NOT $request->user(), which your app never
             // populates via Laravel's Auth facade.
             'issuedByName' => CurrentEmployee::name(),
+            // Customer: Others -- every department name from the masterlist
+            // (HR, MIS, Facility, Store, Finance, Purchasing, MRM, ...) so
+            // the issuer can pick the Issued Department first and the
+            // Issued To search is limited to that department.
+            'departments' => Department::query()
+                ->whereNotNull('dep_name')
+                ->where('dep_name', '!=', '')
+                ->orderBy('dep_name')
+                ->distinct()
+                ->pluck('dep_name'),
         ]);
     }
 
@@ -166,6 +177,10 @@ class QdnController extends Controller
             'issued_department' => $issuedToEmployee?->DEPARTMENT,
             // Server-derived from session('emp_data'), not client input.
             'issued_by' => CurrentEmployee::name(),
+            // The issuer's own department: the "Issuing Dept" approver in
+            // PE / EE / QA / Production approval for Customer: Others.
+            'issued_by_employee_id' => CurrentEmployee::employId(),
+            'issuing_department' => CurrentEmployee::department(),
         ]);
 
         if (Qdn::requiresPhotos($location?->location_name)) {

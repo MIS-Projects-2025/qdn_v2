@@ -72,17 +72,44 @@ class CurrentEmployee
         return $position === null ? null : (string) $position;
     }
 
-    public static function isPositionAnyOf(array $positions): bool
+    /**
+     * EMPPOSITION from the masterlist (employee_position.empposition_id)
+     * for the signed-in employee. Authify's emp_position isn't always
+     * the same code -- it can be blank, a name, or out of date until the
+     * next sign-in -- so isPositionAnyOf() checks this too. Cached for
+     * the request; a masterlist error just counts as "no match".
+     */
+    public static function masterlistPositionId(): ?string
     {
-        $current = static::position();
-
-        if ($current === null) {
-            return false;
+        $empId = trim((string) static::employId());
+        if ($empId === '') {
+            return null;
         }
 
-        $positions = array_map('strval', $positions);
+        return once(fn () => rescue(function () use ($empId) {
+            $id = \App\Models\Masterlist\Employee::find($empId)?->currentPosition?->empposition_id;
 
-        return in_array($current, $positions, true);
+            return $id === null ? null : trim((string) $id);
+        }, null, report: true));
+    }
+
+    public static function isPositionAnyOf(array $positions): bool
+    {
+        // Trimmed, and "02" counts as "2" -- an exact === on the raw
+        // session value missed codes with padding or whitespace.
+        $normalize = fn ($v) => is_numeric(trim((string) $v))
+            ? (string) (int) trim((string) $v)
+            : strtolower(trim((string) $v));
+        $positions = array_map($normalize, $positions);
+
+        foreach ([static::position(), static::masterlistPositionId()] as $candidate) {
+            if ($candidate !== null && trim($candidate) !== ''
+                && in_array($normalize($candidate), $positions, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -204,6 +231,35 @@ class CurrentEmployee
     }
 
     /**
+     * canAnswerRcaOrCapa() for one QDN. Customer: Others QDNs are handled
+     * by the people who raised them, so on those the issuer (qdns.issued_by)
+     * and the Issued To employee (qdn_validations.issued_to_employee_id) can
+     * also submit RCA / CAPA, whatever their position. Every other QDN keeps
+     * the Supervisor-and-up / position-code rule unchanged. The owning-
+     * department check (assertOwningDepartment) still applies on top.
+     */
+    public static function canAnswerRcaOrCapaFor(\App\Models\Qdn $qdn): bool
+    {
+        if (static::canAnswerRcaOrCapa()) {
+            return true;
+        }
+
+        if (strcasecmp(trim((string) $qdn->customer_name), 'others') !== 0) {
+            return false;
+        }
+
+        $name = trim((string) static::name());
+        if ($name !== '' && strcasecmp(trim((string) $qdn->issued_by), $name) === 0) {
+            return true;
+        }
+
+        $empId = trim((string) static::employId());
+        $issuedTo = trim((string) $qdn->validation?->issued_to_employee_id);
+
+        return $empId !== '' && $issuedTo !== '' && $empId === $issuedTo;
+    }
+
+    /**
      * Trimmed + case-insensitive on purpose -- department names come from
      * two different sources that don't necessarily agree on casing
      * (session('emp_data.emp_dept') vs. employee.masterlist.DEPARTMENT),
@@ -255,7 +311,7 @@ class CurrentEmployee
      */
     public static function crossApprovalDepartmentKey(): ?string
     {
-        if (!static::isSupervisorAndUp()) {
+        if (!static::isSupervisorAndUpByAnyTitle()) {
             return null;
         }
         foreach (\App\Models\QdnCrossApproval::departments() as $key => $dept) {
@@ -265,6 +321,97 @@ class CurrentEmployee
         }
 
         return null;
+    }
+
+    /**
+     * Supervisor / Section Head / Manager by ANY of the places the app can
+     * read a title from, not just Authify's emp_jobtitle:
+     *   - session emp_jobtitle and emp_position_level (Authify)
+     *   - masterlist JOB_TITLE (position name) and POSITION_LEVEL
+     * A Manager whose Authify job title is e.g. "Process Engineering Head"
+     * but whose position level is "Manager" used to fail the
+     * emp_jobtitle-only check, which hid the PE / EE / QA / Production
+     * Approve button and badge. Used for cross approval only.
+     */
+    /**
+     * crossApprovalDepartmentKey() for one QDN: the fixed department key,
+     * or "other" when the QDN is Customer: Others and this Supervisor+
+     * belongs to the department that raised it (qdns.issuing_department).
+     */
+    public static function crossApprovalDepartmentKeyFor(\App\Models\Qdn $qdn): ?string
+    {
+        if ($key = static::crossApprovalDepartmentKey()) {
+            return $key;
+        }
+
+        return static::isIssuingDepartmentApproverFor($qdn) ? \App\Models\QdnCrossApproval::DEPT_OTHER : null;
+    }
+
+    public static function isIssuingDepartmentApproverFor(\App\Models\Qdn $qdn): bool
+    {
+        $issuing = \App\Models\QdnCrossApproval::otherIssuingDepartmentFor($qdn);
+
+        return $issuing !== null
+            && static::otherIssuingDepartment() !== null
+            && static::isInDepartment($issuing);
+    }
+
+    /**
+     * The current employee's department when they could approve as an
+     * "Issuing Dept" (Supervisor+, department not one of the fixed four).
+     */
+    public static function otherIssuingDepartment(): ?string
+    {
+        $department = trim((string) static::department());
+        if ($department === '' || \App\Models\QdnCrossApproval::isFixedDepartment($department)) {
+            return null;
+        }
+
+        return static::isSupervisorAndUpByAnyTitle() ? $department : null;
+    }
+
+    public static function isSupervisorAndUpByAnyTitle(): bool
+    {
+        // Fast path: Authify job title already matches, no masterlist query.
+        if (static::isSupervisorAndUp()) {
+            return true;
+        }
+
+        foreach (static::titleCandidates() as $title) {
+            foreach (self::SUPERVISOR_AND_UP_TITLES as $needle) {
+                if (stripos($title, $needle) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @return string[] every non-empty title/level text known for the current employee */
+    public static function titleCandidates(): array
+    {
+        $titles = [
+            session('emp_data.emp_jobtitle'),
+            session('emp_data.emp_position_level'),
+        ];
+
+        $empId = trim((string) static::employId());
+        if ($empId !== '') {
+            $titles = array_merge($titles, once(fn () => rescue(function () use ($empId) {
+                $employee = \App\Models\Masterlist\Employee::with([
+                    'currentPosition.position',
+                    'currentPositionLevel.positionLevel',
+                ])->find($empId);
+
+                return $employee ? [$employee->JOB_TITLE, $employee->POSITION_LEVEL] : [];
+            }, [], report: true)));
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map(fn ($t) => is_scalar($t) ? trim((string) $t) : '', $titles),
+            fn ($t) => $t !== ''
+        )));
     }
 
     public static function isPe(): bool

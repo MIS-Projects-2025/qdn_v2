@@ -33,7 +33,8 @@ import {
 } from "lucide-react";
 
 export default function Sidebar() {
-    const { display_name, emp_data, system_status } = usePage().props;
+    const { display_name, emp_data, system_status, logo_url } = usePage().props;
+    const [logoFailed, setLogoFailed] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [mounted, setMounted] = useState(false);
@@ -167,16 +168,29 @@ export default function Sidebar() {
                             </div>
 
                             {isSidebarOpen && (
-                                <div className="flex flex-col min-w-0 gap-1">
-                                    <span className="text-sm font-semibold tracking-tight leading-tight truncate text-foreground">
+                                <div className="flex flex-col min-w-0">
+                                    <span
+                                        className="text-sm font-semibold tracking-tight leading-tight truncate
+                                        text-foreground"
+                                    >
                                         {formattedAppName}
                                     </span>
-
-                                    <img
-                                        src="/images/telford_logo.jpg"
-                                        alt="TELFORD Logo"
-                                        className="h-5 w-auto object-contain object-left"
-                                    />
+                                    {/* TELFORD logo from public/telford_logo.jpg (logo_url
+                                        is shared by HandleInertiaRequests with the
+                                        full app URL). Falls back to text if the file
+                                        is missing or fails to load, never a broken image. */}
+                                    {logo_url && !logoFailed ? (
+                                        <img
+                                            src={logo_url}
+                                            alt="TELFORD"
+                                            className="h-4 w-auto max-w-[140px] object-contain object-left mt-0.5"
+                                            onError={() => setLogoFailed(true)}
+                                        />
+                                    ) : (
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-600">
+                                            TELFORD
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </Link>

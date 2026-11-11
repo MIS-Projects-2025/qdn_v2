@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import StatusRoadmap from "@/Components/StatusRoadmap";
 import QdnPhotos from "@/Components/QdnPhotos";
-import QdnIssuanceFields, { QdnValidationFields } from "@/Components/QdnIssuanceFields";
+import QdnIssuanceFields, { QdnValidationFields, isOthersQdn } from "@/Components/QdnIssuanceFields";
 import { Timeline, TimelineItem } from "@/Components/Timeline";
 
 /**
@@ -71,6 +71,12 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                         <dd>{qdn.classification}</dd>
                         <dt>Issued By</dt>
                         <dd>{qdn.issued_by}</dd>
+                        {qdn.issuing_department && (
+                            <>
+                                <dt>Issuing Department</dt>
+                                <dd>{qdn.issuing_department}</dd>
+                            </>
+                        )}
                         <dt>Issued Department</dt>
                         <dd>{qdn.issued_department ?? "—"}</dd>
                     </dl>
@@ -88,7 +94,7 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
 
             {(qdn.validation || qdn.pe_disposition) && (
                 <section className="qdn-readonly-summary qdn-issuance-form">
-                    <h2>PE Validation</h2>
+                    <h2>{isOthersQdn(qdn) ? "Issued To" : "PE Validation"}</h2>
                     <QdnValidationFields qdn={qdn} />
                 </section>
             )}

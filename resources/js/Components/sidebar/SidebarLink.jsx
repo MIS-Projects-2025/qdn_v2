@@ -28,7 +28,7 @@ const SidebarLink = ({
 
                 /* Active */
                 isActive
-                    ? "bg-primary/10 text-primary border border-primary/20"
+                    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/40"
                     : "border border-transparent",
 
                 !isSidebarOpen && "justify-center px-0 mx-2",
@@ -37,9 +37,9 @@ const SidebarLink = ({
             {/* Active left accent bar */}
             {isActive && (
                 <span
-                    className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full bg-primary"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full bg-amber-500"
                     style={{
-                        boxShadow: "0 0 8px 1px hsl(var(--primary) / 0.5)",
+                        boxShadow: "0 0 8px 1px rgb(245 158 11 / 0.5)",
                     }}
                 />
             )}
@@ -49,7 +49,7 @@ const SidebarLink = ({
                 className={cn(
                     "flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center transition-colors",
                     isActive
-                        ? "text-primary"
+                        ? "text-amber-600 dark:text-amber-400"
                         : "text-muted-foreground group-hover:text-foreground",
                 )}
             >

@@ -84,9 +84,9 @@ class QdnWorkflowController extends Controller
      * capaStore() only, not rcaShow()/capaShow(), same "visible to all,
      * action restricted" pattern chosen for Dept Approval below.
      */
-    private function assertCanAnswerRcaOrCapa(): void
+    private function assertCanAnswerRcaOrCapa(Qdn $qdn): void
     {
-        if (!CurrentEmployee::canAnswerRcaOrCapa()) {
+        if (!CurrentEmployee::canAnswerRcaOrCapaFor($qdn)) {
             throw new HttpException(403, 'Only Supervisor, Section Head, or Manager can submit this.');
         }
     }
@@ -173,7 +173,7 @@ class QdnWorkflowController extends Controller
             // assertCanAnswerRcaOrCapa(). The page uses this to disable
             // the Submit button and show a notice rather than let someone
             // fill the whole thing out and hit a 403 at the end.
-            'canSubmit' => CurrentEmployee::canAnswerRcaOrCapa(),
+            'canSubmit' => CurrentEmployee::canAnswerRcaOrCapaFor($qdn),
             // Existing rows, grouped so the form can pre-fill each of the
             // three repeatable sections (e.g. when PE rejected the RCA and
             // sent it back for rework).
@@ -224,7 +224,7 @@ class QdnWorkflowController extends Controller
     public function rcaStore(Request $request, Qdn $qdn): RedirectResponse
     {
         $this->assertOwningDepartment($qdn);
-        $this->assertCanAnswerRcaOrCapa();
+        $this->assertCanAnswerRcaOrCapa($qdn);
         abort_unless($qdn->status === Qdn::STATUS_FOR_DEPT_RCA, 409, 'This QDN is not currently awaiting RCA.');
 
         $rowRules = [
@@ -475,7 +475,7 @@ class QdnWorkflowController extends Controller
             'qdn' => $qdn,
             // Same "visible to all, action restricted" pattern as
             // rcaShow() -- see CurrentEmployee::canAnswerRcaOrCapa().
-            'canSubmit' => CurrentEmployee::canAnswerRcaOrCapa(),
+            'canSubmit' => CurrentEmployee::canAnswerRcaOrCapaFor($qdn),
             'lastReturn' => $lastReturn ? [
                 'stage' => $lastReturn->stage,
                 'returned_by' => $lastReturn->returned_by,
@@ -534,7 +534,7 @@ class QdnWorkflowController extends Controller
     public function capaStore(Request $request, Qdn $qdn): RedirectResponse
     {
         $this->assertOwningDepartment($qdn);
-        $this->assertCanAnswerRcaOrCapa();
+        $this->assertCanAnswerRcaOrCapa($qdn);
         abort_unless($qdn->status === Qdn::STATUS_FOR_DEPT_CAPA, 409, 'This QDN is not currently awaiting CAPA.');
 
         $data = $request->validate([
