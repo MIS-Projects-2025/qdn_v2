@@ -22,7 +22,7 @@ class Qdn extends Model
         'device_name',
         'package_name',
         'machine_id',
-        'machine_no',
+        'machine_num',
         'location_id',
         'detection_area',
         'detected_at',

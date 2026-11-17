@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreQdnRequest;
-use App\Models\AnalogCalendar;
+use App\Models\TelfordCalendar;
 use App\Models\Customer;
 use App\Models\Masterlist\Employee;
 use App\Models\Location;
@@ -12,6 +12,7 @@ use App\Models\Machine;
 use App\Models\Nonconformity;
 use App\Models\Package;
 use App\Models\Qdn;
+use App\Models\QdnCrossApproval;
 use App\Models\QdnRcaCause;
 use App\Models\QdnValidation;
 use App\Services\QdnNumberGenerator;
@@ -270,13 +271,13 @@ class QdnController extends Controller
         $query = Qdn::query();
 
         // Work Week -- identical handling to records() below, backed by
-        // the analog_calendar table (see App\Models\AnalogCalendar).
+        // the TELFORD calendar (telford_calendar, see App\Models\TelfordCalendar).
         // Wins over an explicit date range if both are somehow submitted
         // at once (the UI only ever sends one or the other).
         $workWeek = trim((string) $request->query('workweek', ''));
         if ($workWeek !== '') {
             [$year, $ww] = array_pad(explode('-', $workWeek, 2), 2, null);
-            $range = AnalogCalendar::query()
+            $range = TelfordCalendar::query()
                 ->where('cal_year', $year)
                 ->where('cal_workweek', $ww)
                 ->selectRaw('MIN(cal_date) as date_start, MAX(cal_date) as date_end')
@@ -428,7 +429,9 @@ class QdnController extends Controller
                     ->distinct()
                     ->orderBy('defect_source_name')
                     ->pluck('defect_source_name'),
-                'workWeeks' => AnalogCalendar::query()
+                'workWeeks' => TelfordCalendar::query()
+                    ->whereNotNull('cal_year')
+                    ->whereNotNull('cal_workweek')
                     ->selectRaw('cal_year, cal_workweek, MIN(cal_date) as date_start, MAX(cal_date) as date_end')
                     ->groupBy('cal_year', 'cal_workweek')
                     ->orderByDesc('cal_year')
@@ -942,8 +945,8 @@ class QdnController extends Controller
     /**
      * Full QDN record list -- searchable, filterable, sortable, paginated.
      * Not department-scoped: full history view across every QDN. The
-     * "Work Week" filter is keyed off the company's own analog_calendar
-     * table -- see the workweek handling below and App\Models\AnalogCalendar.
+     * "Work Week" filter is keyed off the TELFORD calendar (telford_calendar)
+     * -- see the workweek handling below and App\Models\TelfordCalendar.
      */
     public function records(Request $request): Response
     {
@@ -973,9 +976,9 @@ class QdnController extends Controller
             $query->whereIn('status', self::RECORDS_STATUS_GROUPS[$statusGroup]);
         }
 
-        // "Work Week" -- filters by the company's own analog_calendar
-        // calendar (one row per calendar day tagged with cal_year/
-        // cal_workweek, see App\Models\AnalogCalendar), not a generic
+        // "Work Week" -- filters by the TELFORD calendar (telford_calendar,
+        // one row per calendar day tagged with cal_year/cal_workweek,
+        // see App\Models\TelfordCalendar), not a generic
         // rolling "last 7 days." The selected value is "{cal_year}-
         // {cal_workweek}" (e.g. "2026-34"); MIN/MAX(cal_date) for that
         // pair gives the actual date range, checked against the QDN's
@@ -985,7 +988,7 @@ class QdnController extends Controller
         $workWeek = trim((string) $request->query('workweek', ''));
         if ($workWeek !== '') {
             [$year, $ww] = array_pad(explode('-', $workWeek, 2), 2, null);
-            $range = AnalogCalendar::query()
+            $range = TelfordCalendar::query()
                 ->where('cal_year', $year)
                 ->where('cal_workweek', $ww)
                 ->selectRaw('MIN(cal_date) as date_start, MAX(cal_date) as date_end')
@@ -1072,7 +1075,9 @@ class QdnController extends Controller
                 // calendar, newest first, each carrying the actual date
                 // range so the dropdown can show "WW34 · 2026 (Aug 18–24)"
                 // instead of a bare number.
-                'workWeeks' => AnalogCalendar::query()
+                'workWeeks' => TelfordCalendar::query()
+                    ->whereNotNull('cal_year')
+                    ->whereNotNull('cal_workweek')
                     ->selectRaw('cal_year, cal_workweek, MIN(cal_date) as date_start, MAX(cal_date) as date_end')
                     ->groupBy('cal_year', 'cal_workweek')
                     ->orderByDesc('cal_year')
@@ -1097,11 +1102,43 @@ class QdnController extends Controller
      */
     public function recordShow(Qdn $qdn): Response
     {
+        $qdn->load([
+            'validation', 'rcaCauses', 'capaContainmentLots', 'capaCorrections',
+            'capaReturns', 'crossApprovals',
+        ]);
+
         return Inertia::render('Qdn/Records/Show', [
             'qdn' => array_merge(
-                $qdn->load(['validation', 'rcaCauses', 'capaContainmentLots', 'capaCorrections'])->toArray(),
-                ['status_label' => $qdn->statusLabel()]
+                $qdn->toArray(),
+                [
+                    'status_label' => $qdn->statusLabel(),
+                    // PE / EE / QA / Production (+ Issuing Dept for Customer:
+                    // Others) sign-offs for the current CAPA round, one entry
+                    // per required department whether approved yet or not.
+                    // Earlier rounds' sign-offs stay in cross_approvals.
+                    'cross_approval_summary' => $this->crossApprovalSummary($qdn),
+                ]
             ),
         ]);
+    }
+
+    /** [key => [label, approved, approved_by, approved_by_title, approved_at, remarks]] for the current round. */
+    private function crossApprovalSummary(Qdn $qdn): array
+    {
+        $round = (int) ($qdn->capa_round ?: 1);
+        $rows = $qdn->crossApprovals->where('round', $round)->keyBy('department_key');
+
+        return collect(QdnCrossApproval::departmentsFor($qdn))->map(function ($dept, $key) use ($rows) {
+            $row = $rows->get($key);
+
+            return [
+                'label' => $dept['label'],
+                'approved' => (bool) $row,
+                'approved_by' => $row?->approved_by_name,
+                'approved_by_title' => $row?->approved_by_title,
+                'approved_at' => $row?->approved_at?->toDateTimeString(),
+                'remarks' => $row?->remarks,
+            ];
+        })->all();
     }
 }

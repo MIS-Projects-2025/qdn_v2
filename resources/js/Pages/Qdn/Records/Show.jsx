@@ -6,7 +6,9 @@ import BackLink from '@/Components/BackLink';
 /**
  * Every field recorded for a single QDN -- base details, the original PE
  * validation decision, and whichever of RCA / CAPA / QA Verification has
- * happened so far. Props (from QdnController@recordShow): qdn (includes
+ * happened so far, plus Dept Approval, PE / EE / QA / Production Approval
+ * and QA Verification. Every stage is listed, marked Pending until it
+ * happens. Props (from QdnController@recordShow): qdn (includes
  * qdn.validation, the qdn_validations row, when one exists)
  */
 export default function RecordsShow({ qdn }) {
@@ -23,7 +25,7 @@ export default function RecordsShow({ qdn }) {
                 </button>
             </div>
 
-            <QdnDetailCard qdn={qdn} />
+            <QdnDetailCard qdn={qdn} showAll />
         </div>
     );
 }

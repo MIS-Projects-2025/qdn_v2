@@ -39,7 +39,7 @@ export default function NavLinks({ isSidebarOpen }) {
     ];
 
     const peLinks = [
-        { href: route("pe.queue.index"), label: "PE Queue" },
+        { href: route("pe.queue.index"), label: "PE Queue", notification: badge(counts.peQueue) },
         { href: route("pe.reassign.index"), label: "Reassign QDN" },
     ];
 
@@ -61,9 +61,11 @@ export default function NavLinks({ isSidebarOpen }) {
         { href: route("qdn.maintenance.index", "specs"), label: "Specs List" },
         { href: route("qdn.maintenance.index", "violations"), label: "Violation List" },
         { href: route("qdn.maintenance.index", "defects"), label: "Defect List" },
+        { href: route("qdn.maintenance.index", "defect-sources"), label: "Source of Defect" },
         { href: route("qdn.maintenance.index", "locations"), label: "Location List" },
         { href: route("qdn.maintenance.index", "customers"), label: "Customer List" },
         { href: route("qdn.maintenance.index", "nonconformities"), label: "Non-conformity List" },
+        { href: route("qdn.maintenance.calendar.index"), label: "TELFORD Calendar" },
     ];
 
     return (
@@ -109,6 +111,7 @@ export default function NavLinks({ isSidebarOpen }) {
                     label="Process Engineering"
                     icon={icon(ClipboardCheck)}
                     links={peLinks}
+                    notification={badge(counts.peQueue ?? 0)}
                     isSidebarOpen={isSidebarOpen}
                 />
             )}

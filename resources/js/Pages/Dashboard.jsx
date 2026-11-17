@@ -13,7 +13,7 @@ import {
     Legend,
 } from "chart.js";
 import { Bar, Doughnut } from "react-chartjs-2";
-import { FileWarning, FolderOpen, Search } from "lucide-react";
+import { FilePen, FileWarning, FolderOpen, Search } from "lucide-react";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
@@ -118,9 +118,10 @@ function PersonalCharts({ personal }) {
 
     return (
         <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Stat label="QDNs issued to me" value={personal.total} icon={FileWarning} />
                 <Stat label="Still open" value={personal.open} icon={FolderOpen} />
+                <Stat label="QDNs I issued" value={personal.issuedByMe ?? 0} icon={FilePen} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

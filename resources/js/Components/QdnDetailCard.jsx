@@ -1,7 +1,9 @@
 import {
     AlertTriangle,
     ArrowUpRight,
+    CheckCircle2,
     CheckSquare,
+    Clock,
     RotateCcw,
     Settings,
     ShieldCheck,
@@ -25,8 +27,21 @@ import { Timeline, TimelineItem } from "@/Components/Timeline";
  * `qdn` may or may not have `validation` loaded (QdnController@recordShow
  * loads it; the per-stage controllers don't, since they only need the
  * base + in-progress workflow fields).
+ *
+ * `showAll` (Qdn/Records/Show): render CAPA, Dept Approval, PE / EE / QA /
+ * Production Approval and QA Verification even before they happen, marked
+ * "Not submitted yet" / "Pending", so the record view always lists every
+ * stage. The PE / EE / QA / Production section needs
+ * qdn.cross_approval_summary (QdnController@recordShow) and
+ * qdn.cross_approvals for earlier rounds.
  */
-export default function QdnDetailCard({ qdn, formLayout = false }) {
+export default function QdnDetailCard({ qdn, formLayout = false, showAll = false }) {
+    const hasCapa =
+        qdn.capa_containment_lots?.length > 0 ||
+        qdn.capa_corrections?.length > 0 ||
+        !!qdn.capa_corrective_what ||
+        !!qdn.capa_submitted_at;
+
     return (
         <>
             <StatusRoadmap status={qdn.status} />
@@ -153,11 +168,17 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                 </section>
             )}
 
-            {(qdn.capa_containment_lots?.length > 0 ||
-                qdn.capa_corrections?.length > 0 ||
-                qdn.capa_corrective_what) && (
+            {showAll && !(qdn.rca_causes?.length > 0) && (
+                <section className="qdn-readonly-summary">
+                    <h2>Root Cause Analysis (RCA)</h2>
+                    <PendingNote>RCA not submitted yet.</PendingNote>
+                </section>
+            )}
+
+            {(hasCapa || showAll) && (
                 <section className="qdn-readonly-summary">
                     <h2>Corrective &amp; Preventive Action (CAPA)</h2>
+                    {!hasCapa && <PendingNote>CAPA not submitted yet.</PendingNote>}
                     <dl>
                         <dt>Current Round</dt>
                         <dd>{qdn.capa_round ?? 1}</dd>
@@ -171,7 +192,21 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                                   ).toLocaleString()
                                 : "—"}
                         </dd>
+                        <dt>Containment Action</dt>
+                        <dd>{qdn.capa_containment_checked ? "Yes" : "No"}</dd>
+                        <dt>Correction Action</dt>
+                        <dd>{qdn.capa_correction_checked ? "Yes" : "No"}</dd>
                     </dl>
+
+                    {qdn.capa_details && (
+                        <>
+                            <h3>CAPA Details</h3>
+                            <div
+                                className="qdn-rte-content qdn-readonly-html"
+                                dangerouslySetInnerHTML={{ __html: qdn.capa_details }}
+                            />
+                        </>
+                    )}
 
                     {/* Every round ever submitted, newest first, plus the
                         return/rejection note for any round that was sent
@@ -214,7 +249,7 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                 </section>
             )}
 
-            {qdn.capa_approval_status && (
+            {(qdn.capa_approval_status || showAll) && (
                 <section className="qdn-readonly-summary">
                     <h2>
                         <Stamp
@@ -229,9 +264,11 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                     <dl>
                         <dt>Decision</dt>
                         <dd>
-                            {qdn.capa_approval_status === "correct"
-                                ? "Correct"
-                                : "Wrong (returned for update)"}
+                            {!qdn.capa_approval_status
+                                ? "Pending"
+                                : qdn.capa_approval_status === "correct"
+                                  ? "Correct"
+                                  : "Wrong (returned for update)"}
                         </dd>
                         <dt>By</dt>
                         <dd>{qdn.capa_approved_by ?? "—"}</dd>
@@ -249,15 +286,25 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                 </section>
             )}
 
-            {qdn.qa_capa_implemented && (
+            {showAll && qdn.cross_approval_summary && (
+                <CrossApprovalSection
+                    summary={qdn.cross_approval_summary}
+                    history={qdn.cross_approvals ?? []}
+                    round={qdn.capa_round ?? 1}
+                />
+            )}
+
+            {(qdn.qa_capa_implemented || showAll) && (
                 <section className="qdn-readonly-summary">
                     <h2>QA Verification</h2>
                     <dl>
                         <dt>Corrective Action Implemented?</dt>
                         <dd>
-                            {qdn.qa_capa_implemented === "yes"
-                                ? "Yes"
-                                : "No (returned for CAPA rework)"}
+                            {!qdn.qa_capa_implemented
+                                ? "Pending"
+                                : qdn.qa_capa_implemented === "yes"
+                                  ? "Yes"
+                                  : "No (returned for CAPA rework)"}
                         </dd>
                         <dt>Verification of Effectiveness / Remarks</dt>
                         <dd>{qdn.qa_verification_remarks || "—"}</dd>
@@ -273,6 +320,94 @@ export default function QdnDetailCard({ qdn, formLayout = false }) {
                 </section>
             )}
         </>
+    );
+}
+
+function PendingNote({ children }) {
+    return (
+        <p style={{ color: "#6b7280", fontStyle: "italic", margin: "0 0 12px" }}>
+            {children}
+        </p>
+    );
+}
+
+/**
+ * PE / EE / QA / Production (+ Issuing Dept for Customer: Others) approval:
+ * one card per required department for the current CAPA round, then any
+ * sign-offs from earlier rounds (a CAPA sent back needs fresh approvals).
+ * summary comes from QdnController@recordShow, history is qdn.cross_approvals.
+ */
+function CrossApprovalSection({ summary, history, round }) {
+    const earlier = history
+        .filter((a) => (a.round ?? 1) !== round)
+        .sort((a, b) => (b.round ?? 1) - (a.round ?? 1));
+
+    return (
+        <section className="qdn-readonly-summary">
+            <h2>PE / EE / QA / Production Approval</h2>
+            <div className="qdn-cross-grid">
+                {Object.entries(summary).map(([key, a]) => (
+                    <div
+                        key={key}
+                        className={`qdn-cross-card ${a.approved ? "is-approved" : "is-pending"}`}
+                    >
+                        <div className="qdn-cross-card-head">
+                            {a.approved ? <CheckCircle2 size={18} /> : <Clock size={18} />}
+                            <strong>{a.label}</strong>
+                        </div>
+                        {a.approved ? (
+                            <>
+                                <div className="qdn-cross-status">Approved</div>
+                                <div className="qdn-cross-meta">
+                                    {a.approved_by}
+                                    {a.approved_by_title ? `, ${a.approved_by_title}` : ""}
+                                </div>
+                                <div className="qdn-cross-meta">
+                                    {a.approved_at ? new Date(a.approved_at).toLocaleString() : ""}
+                                </div>
+                                {a.remarks && <div className="qdn-cross-remarks">“{a.remarks}”</div>}
+                            </>
+                        ) : (
+                            <div className="qdn-cross-status">Pending</div>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {earlier.length > 0 && (
+                <>
+                    <h3>Earlier rounds</h3>
+                    <table className="qdn-table">
+                        <thead>
+                            <tr>
+                                <th>Round</th>
+                                <th>Department</th>
+                                <th>Approved By</th>
+                                <th>Title</th>
+                                <th>Approved At</th>
+                                <th>Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {earlier.map((a) => (
+                                <tr key={a.id}>
+                                    <td>{a.round ?? 1}</td>
+                                    <td>{a.department_name ?? a.department_key}</td>
+                                    <td>{a.approved_by_name ?? "—"}</td>
+                                    <td>{a.approved_by_title ?? "—"}</td>
+                                    <td>
+                                        {a.approved_at
+                                            ? new Date(a.approved_at).toLocaleString()
+                                            : "—"}
+                                    </td>
+                                    <td>{a.remarks || "—"}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </>
+            )}
+        </section>
     );
 }
 

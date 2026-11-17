@@ -25,6 +25,16 @@ class ReasonRootCause extends Model
 
     public const LABEL_COLUMN = 'root_cause';
 
+    // Root Cause Type choices on Maintenance > Root Cause List -- the three
+    // cause sections of the RCA form (QdnRcaCause::TYPE_EVENT / ESCAPE /
+    // SYSTEM: Cause of Event, Root Cause of Escape, System Cause).
+    public const TYPES = ['Escape', 'Event', 'System'];
+
+    // qdn_db's own reason_root_cause already has root_cause_type as an
+    // INTEGER column, so on that schema the type is saved as a number.
+    // Code => label. Change here if your codes mean something else.
+    public const TYPE_CODES = [1 => 'Escape', 2 => 'Event', 3 => 'System'];
+
     public function label(): ?string
     {
         return $this->{self::LABEL_COLUMN} ?? null;

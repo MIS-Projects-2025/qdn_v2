@@ -29,7 +29,6 @@ import {
     MonitorSmartphone,
     ShieldAlert,
     ShieldCheck,
-    FileWarning,
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -163,8 +162,14 @@ export default function Sidebar() {
                                 !isSidebarOpen && "justify-center",
                             )}
                         >
-                            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary shadow-md">
-                                <FileWarning className="w-4 h-4 text-primary-foreground" />
+                            {/* QDN badge (same mark as the browser tab icon, public/qdn-icon.svg). */}
+                            <div
+                                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-500 shadow-md"
+                                aria-label="QDN"
+                            >
+                                <span className="text-[11px] font-extrabold tracking-tight leading-none text-zinc-950">
+                                    QDN
+                                </span>
                             </div>
 
                             {isSidebarOpen && (

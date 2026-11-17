@@ -62,6 +62,45 @@ class QdnWorkflowController extends Controller
         }
     }
 
+    /**
+     * RCA / CAPA pages: the owning department, or the Issued To employee's
+     * approver (approver1/2/3 in masterlist.employee_approver) even when
+     * their Authify emp_dept doesn't match qdns.issued_department.
+     */
+    private function assertOwningDepartmentOrIssuedToApprover(Qdn $qdn): void
+    {
+        if (CurrentEmployee::isIssuedToApproverFor($qdn)) {
+            return;
+        }
+        $this->assertOwningDepartment($qdn);
+    }
+
+    /**
+     * Index query for the RCA / CAPA queues: the user's department, plus
+     * QDNs whose Issued To employee lists the user as an approver.
+     */
+    private function departmentOrApproverQueue(string $status)
+    {
+        $department = CurrentEmployee::department();
+        $approvees = CurrentEmployee::approveeIds();
+
+        if (!$department && !$approvees) {
+            return collect();
+        }
+
+        return Qdn::where('status', $status)
+            ->where(function ($q) use ($department, $approvees) {
+                if ($department) {
+                    $q->where('issued_department', $department);
+                }
+                if ($approvees) {
+                    $q->orWhereHas('validation', fn ($v) => $v->whereIn('issued_to_employee_id', $approvees));
+                }
+            })
+            ->orderBy('created_at')
+            ->get(self::SUMMARY_COLUMNS);
+    }
+
     private function assertIsPe(): void
     {
         if (!CurrentEmployee::isPe()) {
@@ -87,7 +126,7 @@ class QdnWorkflowController extends Controller
     private function assertCanAnswerRcaOrCapa(Qdn $qdn): void
     {
         if (!CurrentEmployee::canAnswerRcaOrCapaFor($qdn)) {
-            throw new HttpException(403, 'Only Supervisor, Section Head, or Manager can submit this.');
+            throw new HttpException(403, 'Only Supervisor, Section Head, Engineer, Manager, or the Issued To employee\'s approver can submit this.');
         }
     }
 
@@ -144,18 +183,13 @@ class QdnWorkflowController extends Controller
 
         return Inertia::render('Qdn/Rca/Index', [
             'department' => $department,
-            'qdns' => $department
-                ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_RCA)
-                ->where('issued_department', $department)
-                ->orderBy('created_at')
-                ->get(self::SUMMARY_COLUMNS)
-                : collect(),
+            'qdns' => $this->departmentOrApproverQueue(Qdn::STATUS_FOR_DEPT_RCA),
         ]);
     }
 
     public function rcaShow(Qdn $qdn): Response
     {
-        $this->assertOwningDepartment($qdn);
+        $this->assertOwningDepartmentOrIssuedToApprover($qdn);
         $this->redirectIfNotAt($qdn, Qdn::STATUS_FOR_DEPT_RCA, 'Dept RCA');
 
         // 'validation' -- without it, QdnDetailCard's "PE Validation"
@@ -223,7 +257,7 @@ class QdnWorkflowController extends Controller
 
     public function rcaStore(Request $request, Qdn $qdn): RedirectResponse
     {
-        $this->assertOwningDepartment($qdn);
+        $this->assertOwningDepartmentOrIssuedToApprover($qdn);
         $this->assertCanAnswerRcaOrCapa($qdn);
         abort_unless($qdn->status === Qdn::STATUS_FOR_DEPT_RCA, 409, 'This QDN is not currently awaiting RCA.');
 
@@ -434,18 +468,13 @@ class QdnWorkflowController extends Controller
 
         return Inertia::render('Qdn/Capa/Index', [
             'department' => $department,
-            'qdns' => $department
-                ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_CAPA)
-                ->where('issued_department', $department)
-                ->orderBy('created_at')
-                ->get(self::SUMMARY_COLUMNS)
-                : collect(),
+            'qdns' => $this->departmentOrApproverQueue(Qdn::STATUS_FOR_DEPT_CAPA),
         ]);
     }
 
     public function capaShow(Qdn $qdn): Response
     {
-        $this->assertOwningDepartment($qdn);
+        $this->assertOwningDepartmentOrIssuedToApprover($qdn);
         $this->redirectIfNotAt($qdn, Qdn::STATUS_FOR_DEPT_CAPA, 'Dept CAPA');
 
         // 'validation' / 'rcaCauses' -- same eager-load gap already found
@@ -533,7 +562,7 @@ class QdnWorkflowController extends Controller
 
     public function capaStore(Request $request, Qdn $qdn): RedirectResponse
     {
-        $this->assertOwningDepartment($qdn);
+        $this->assertOwningDepartmentOrIssuedToApprover($qdn);
         $this->assertCanAnswerRcaOrCapa($qdn);
         abort_unless($qdn->status === Qdn::STATUS_FOR_DEPT_CAPA, 409, 'This QDN is not currently awaiting CAPA.');
 

@@ -18,6 +18,8 @@ use Inertia\Inertia;
  *  - Approvers (approver1/2/3 in masterlist.employee_approver): additionally
  *    a table of every QDN issued to the employees they approve for
  *    (QDN No, Detection Area, Non-Conformity, Classification, Date Issued).
+ *  - Everyone: how many QDNs they issued themselves (qdns.issued_by_employee_id,
+ *    falling back to the issued_by name for QDNs saved before that column).
  *
  * "Date issued" = qdns.created_at.
  */
@@ -48,6 +50,22 @@ class DashboardController extends Controller
     {
         return Qdn::query()->whereHas('validation', function ($q) use ($empId) {
             $q->where('issued_to_employee_id', $empId);
+        });
+    }
+
+    /**
+     * QDNs the user created. issued_by_employee_id is only filled since
+     * qdn-issuing-dept-approver; older rows only have the issuer's name.
+     */
+    private function issuedBy(string $empId): Builder
+    {
+        $name = CurrentEmployee::name();
+
+        return Qdn::query()->where(function ($q) use ($empId, $name) {
+            $q->where('issued_by_employee_id', $empId);
+            if ($name) {
+                $q->orWhere(fn ($old) => $old->whereNull('issued_by_employee_id')->where('issued_by', $name));
+            }
         });
     }
 
@@ -95,6 +113,7 @@ class DashboardController extends Controller
         return [
             'total' => $base()->count(),
             'open' => $base()->whereNotIn('status', [Qdn::STATUS_CLOSED, Qdn::STATUS_INVALID_DISPOSITION])->count(),
+            'issuedByMe' => $this->issuedBy($empId)->count(),
             'byNonconformity' => $byNonconformity,
             'byClassification' => [
                 'Minor' => (int) ($byClassification['Minor'] ?? 0),

@@ -217,7 +217,51 @@ class CurrentEmployee
     }
 
     /**
-     * Who's allowed to submit Dept RCA / Dept CAPA: Supervisor-and-up by
+     * factory.id values for an employee, from masterlist.employee_factory
+     * (EMPLOYID, factory_id -> factory.id). Cached per request; a
+     * masterlist error counts as "no factory".
+     *
+     * @return string[]
+     */
+    public static function factoryIdsFor(?string $empId): array
+    {
+        $empId = trim((string) $empId);
+        if ($empId === '') {
+            return [];
+        }
+
+        return once(fn () => rescue(fn () => \App\Models\Masterlist\EmployeeFactory::query()
+            ->where('EMPLOYID', $empId)
+            ->whereNotNull('factory_id')
+            ->pluck('factory_id')
+            ->map(fn ($id) => trim((string) $id))
+            ->filter(fn ($id) => $id !== '')
+            ->unique()
+            ->values()
+            ->all(), [], report: true));
+    }
+
+    /**
+     * True if the signed-in employee and the QDN's Issued To employee share
+     * a factory in masterlist.employee_factory. False when either has no
+     * factory row, or the QDN has no Issued To yet.
+     */
+    public static function isSameFactoryAsIssuedTo(\App\Models\Qdn $qdn): bool
+    {
+        $mine = static::factoryIdsFor(static::employId());
+        $theirs = static::factoryIdsFor($qdn->validation?->issued_to_employee_id);
+
+        return $mine !== [] && array_intersect($mine, $theirs) !== [];
+    }
+
+    /** isApproverFor() for the QDN's (latest) PE validation Issued To employee. */
+    public static function isIssuedToApproverFor(\App\Models\Qdn $qdn): bool
+    {
+        return static::isApproverFor($qdn->validation?->issued_to_employee_id);
+    }
+
+    /**
+     * Who's allowed to submit Dept RCA / Dept CAPA:Supervisor-and-up by
      * job title (the original rule), OR one of the whitelisted position
      * codes (RCA_CAPA_ALLOWED_POSITIONS) regardless of job title. Single
      * source of truth for both QdnWorkflowController's canSubmit props
@@ -226,8 +270,37 @@ class CurrentEmployee
      */
     public static function canAnswerRcaOrCapa(): bool
     {
-        return static::isSupervisorAndUp()
+        return static::hasRcaCapaTitle()
             || static::isPositionAnyOf(self::RCA_CAPA_ALLOWED_POSITIONS);
+    }
+
+    // RCA / CAPA submitters by position (per the user: "Issued To Department
+    // and position is Supervisor, Section Head, Engineer, and Manager can
+    // submit"). Matched as whole words, so "Engineer" matches "Process
+    // Engineer" / "Senior Engineer" but NOT "Engineering Technician".
+    public const RCA_CAPA_TITLES = ['Supervisor', 'Section Head', 'Engineer', 'Manager'];
+
+    /**
+     * True if any title the app knows for the current employee (Authify
+     * emp_jobtitle / emp_position_level, masterlist JOB_TITLE /
+     * POSITION_LEVEL -- see titleCandidates()) contains one of
+     * RCA_CAPA_TITLES as a whole word.
+     */
+    public static function hasRcaCapaTitle(): bool
+    {
+        $titles = array_filter([static::jobTitle()]);
+        foreach ([$titles, static::titleCandidates()] as $set) {
+            foreach ($set as $title) {
+                foreach (self::RCA_CAPA_TITLES as $needle) {
+                    $pattern = '/\\b' . str_replace(' ', '\\s+', preg_quote($needle, '/')) . 's?\\b/i';
+                    if (preg_match($pattern, (string) $title)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -240,7 +313,18 @@ class CurrentEmployee
      */
     public static function canAnswerRcaOrCapaFor(\App\Models\Qdn $qdn): bool
     {
-        if (static::canAnswerRcaOrCapa()) {
+        // Supervisor / Section Head / Engineer / Manager (or position code
+        // 2/3/4) of the Issued To department -- the department part is
+        // checked by the controller -- AND in the same factory as the
+        // Issued To employee (masterlist.employee_factory -> factory).
+        if (static::canAnswerRcaOrCapa() && static::isSameFactoryAsIssuedTo($qdn)) {
+            return true;
+        }
+
+        // Approver1/2/3 of the Issued To employee (masterlist.employee_approver)
+        // is the responder for that employee, whatever their job title or
+        // position code says. Same lookup Dept Approval already uses.
+        if (static::isIssuedToApproverFor($qdn)) {
             return true;
         }
 

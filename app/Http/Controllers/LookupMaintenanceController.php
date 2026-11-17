@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\Defect;
+use App\Models\DefectList;
+use App\Support\CurrentEmployee;
 use App\Models\Location;
 use App\Models\Nonconformity;
 use App\Models\Qdn;
@@ -40,6 +42,12 @@ class LookupMaintenanceController extends Controller
             'field' => 'Root Cause',
             'used_in' => 'RCA > Select Cause',
             'references' => ['qdn_rca_causes' => 'reason_root_cause_id'],
+            // Extra columns shown and edited next to the name. key = column.
+            'extras' => [
+                ['key' => 'ir_code', 'label' => 'IR Code', 'type' => 'text', 'max' => 50],
+                // 'codes': used when the DB column is numeric (qdn_db's schema).
+                ['key' => 'root_cause_type', 'label' => 'Root Cause Type', 'type' => 'select', 'options' => ReasonRootCause::TYPES, 'codes' => ReasonRootCause::TYPE_CODES],
+            ],
         ],
         'specs' => [
             'label' => 'Specs List',
@@ -57,6 +65,23 @@ class LookupMaintenanceController extends Controller
         ],
         'defects' => [
             'label' => 'Defect List',
+            'model' => DefectList::class,
+            'column' => 'defect_name',
+            'max' => 45,
+            'field' => 'Defect',
+            'used_in' => null,
+            'extras' => [
+                ['key' => 'defect_description', 'label' => 'Description', 'type' => 'textarea'],
+            ],
+            // Who added / last changed a row, and when (the table's own column names).
+            'audit' => [
+                'created_num' => 'created_by_emp_num', 'created_name' => 'created_by_emp_name', 'created_at' => 'date_created',
+                'updated_num' => 'updated_by_emp_num', 'updated_name' => 'update_by_emp_name', 'updated_at' => 'date_update',
+            ],
+        ],
+        // The RCA form's Source of Defect (Man / Machine / ...), separate from defect_list.
+        'defect-sources' => [
+            'label' => 'Source of Defect',
             'model' => Defect::class,
             'column' => Defect::LABEL_COLUMN,
             'field' => 'Source of Defect',
@@ -111,21 +136,25 @@ class LookupMaintenanceController extends Controller
                     'category_label' => $hasCategory ? $row->classificationLabel() : null,
                     'locked_reason' => $this->protectedReason($config, $name),
                     'photo_area' => $list === 'locations' && Qdn::requiresPhotos($name),
+                    'audit' => $this->auditText($config, $row),
+                    'extras' => (object) collect($config['extras'] ?? [])
+                        ->mapWithKeys(fn($e) => [$e['key'] => $this->extraForDisplay($e, $row->{$e['key']} ?? null)])
+                        ->all(),
                 ];
             })
             ->values();
 
         return Inertia::render('Qdn/Maintenance/Index', [
-            'lists' => collect(self::LISTS)->map(fn($c, $key) => [
-                'key' => $key,
-                'label' => $c['label'],
-            ])->values(),
+            'lists' => self::tabs(),
             'current' => [
                 'key' => $list,
                 'label' => $config['label'],
                 'field' => $config['field'],
                 'used_in' => $config['used_in'],
                 'has_category' => $hasCategory,
+                'has_audit' => isset($config['audit']),
+                'max' => $config['max'] ?? 255,
+                'extras' => collect($config['extras'] ?? [])->map(fn($e) => \Illuminate\Support\Arr::except($e, ['codes']))->values()->all(),
             ],
             'categories' => $hasCategory
                 ? collect(Nonconformity::CATEGORY_LABELS)->map(fn($label, $value) => compact('value', 'label'))->values()
@@ -139,7 +168,7 @@ class LookupMaintenanceController extends Controller
         $config = $this->config($list);
         $data = $this->validated($request, $config);
 
-        $config['model']::create($this->attributes($config, $data));
+        $config['model']::create($this->attributes($config, $data) + $this->auditValues($config, 'created'));
 
         return redirect()->route('qdn.maintenance.index', $list)
             ->with('success', "{$config['field']} \"{$data['name']}\" added.");
@@ -157,7 +186,10 @@ class LookupMaintenanceController extends Controller
             return back()->with('error', "\"{$current}\" can't be renamed. {$reason}");
         }
 
-        $row->update($this->attributes($config, $data));
+        $row->fill($this->attributes($config, $data));
+        if ($row->isDirty()) {
+            $row->fill($this->auditValues($config, 'updated'))->save();
+        }
 
         return redirect()->route('qdn.maintenance.index', $list)
             ->with('success', "{$config['field']} \"{$data['name']}\" saved.");
@@ -184,6 +216,24 @@ class LookupMaintenanceController extends Controller
             ->with('success', "{$config['field']} \"{$name}\" deleted.");
     }
 
+    /** Tabs on every Maintenance page: the lookup lists, then TELFORD Calendar. */
+    public static function tabs(): array
+    {
+        return collect(self::LISTS)
+            ->map(fn($c, $key) => [
+                'key' => $key,
+                'label' => $c['label'],
+                'href' => route('qdn.maintenance.index', $key),
+            ])
+            ->values()
+            ->push([
+                'key' => 'calendar',
+                'label' => 'TELFORD Calendar',
+                'href' => route('qdn.maintenance.calendar.index'),
+            ])
+            ->all();
+    }
+
     private function config(string $list): array
     {
         abort_unless(isset(self::LISTS[$list]), 404);
@@ -199,7 +249,7 @@ class LookupMaintenanceController extends Controller
 
         $rules = [
             'name' => [
-                'required', 'string', 'max:255',
+                'required', 'string', 'max:' . ($config['max'] ?? 255),
                 // Case-insensitive duplicate check (most MySQL collations
                 // already compare this way, LOWER() makes it explicit).
                 function ($attribute, $value, $fail) use ($table, $column, $ignoreId, $model, $config) {
@@ -218,7 +268,15 @@ class LookupMaintenanceController extends Controller
             $rules['category'] = ['required', Rule::in(array_keys(Nonconformity::CATEGORY_LABELS))];
         }
 
-        $data = $request->validate($rules, [], ['name' => $config['field'], 'category' => 'Category']);
+        $names = ['name' => $config['field'], 'category' => 'Category'];
+        foreach ($config['extras'] ?? [] as $extra) {
+            $rules["extras.{$extra['key']}"] = $extra['type'] === 'select'
+                ? ['nullable', Rule::in($extra['options'])]
+                : ['nullable', 'string', 'max:' . ($extra['max'] ?? ($extra['type'] === 'textarea' ? 65535 : 255))];
+            $names["extras.{$extra['key']}"] = $extra['label'];
+        }
+
+        $data = $request->validate($rules, [], $names);
         $data['name'] = trim($data['name']);
 
         return $data;
@@ -232,7 +290,69 @@ class LookupMaintenanceController extends Controller
             $attributes['nonconformity_category'] = (int) $data['category'];
         }
 
+        $table = (new $config['model'])->getTable();
+        foreach ($config['extras'] ?? [] as $extra) {
+            $value = trim((string) ($data['extras'][$extra['key']] ?? ''));
+            $value = $value === '' ? null : $value;
+            // Numeric column (e.g. qdn_db's root_cause_type INT): save the code.
+            if ($value !== null && isset($extra['codes']) && $this->isNumericColumn($table, $extra['key'])) {
+                $value = array_search($value, $extra['codes'], true) ?: null;
+            }
+            $attributes[$extra['key']] = $value;
+        }
+
         return $attributes;
+    }
+
+    /** created_* / updated_* audit columns for this list ($which = created|updated), or [] if it has none. */
+    private function auditValues(array $config, string $which): array
+    {
+        if (!isset($config['audit'])) {
+            return [];
+        }
+        $a = $config['audit'];
+        $limit = fn($v) => $v === null ? null : mb_substr((string) $v, 0, 45);
+
+        return [
+            $a["{$which}_num"] => $limit(CurrentEmployee::employId()),
+            $a["{$which}_name"] => $limit(CurrentEmployee::name()),
+            $a["{$which}_at"] => now(),
+        ];
+    }
+
+    private function auditText(array $config, Model $row): ?array
+    {
+        if (!isset($config['audit'])) {
+            return null;
+        }
+        $a = $config['audit'];
+        $fmt = fn($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('Y-m-d H:i') : null;
+
+        return [
+            'created' => trim(($row->{$a['created_name']} ?? '') . ' ' . ($fmt($row->{$a['created_at']}) ?? '')) ?: null,
+            'updated' => trim(($row->{$a['updated_name']} ?? '') . ' ' . ($fmt($row->{$a['updated_at']}) ?? '')) ?: null,
+        ];
+    }
+
+    /** Show a stored code (1) as its label (Escape); unknown codes stay as they are. */
+    private function extraForDisplay(array $extra, $value)
+    {
+        if ($value !== null && isset($extra['codes']) && is_numeric($value)) {
+            return $extra['codes'][(int) $value] ?? (string) $value;
+        }
+
+        return $value;
+    }
+
+    private array $numericColumns = [];
+
+    private function isNumericColumn(string $table, string $column): bool
+    {
+        return $this->numericColumns["{$table}.{$column}"] ??= in_array(
+            strtolower((string) rescue(fn() => Schema::getColumnType($table, $column), '', false)),
+            ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'decimal', 'float', 'double'],
+            true,
+        );
     }
 
     private function protectedReason(array $config, string $name): ?string

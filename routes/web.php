@@ -12,6 +12,7 @@ use App\Http\Controllers\QdnReassignController;
 use App\Http\Controllers\QdnWorkflowController;
 use App\Http\Controllers\LegacyQdnRecordController;
 use App\Http\Controllers\LookupMaintenanceController;
+use App\Http\Controllers\TelfordCalendarController;
 use App\Http\Middleware\QdnMaintenanceMiddleware;
 use App\Http\Middleware\AuthMiddleware;
 use Illuminate\Support\Facades\Route;
@@ -164,11 +165,22 @@ Route::middleware([AuthMiddleware::class, QdnMaintenanceMiddleware::class])
     ->prefix('/qdn/maintenance')
     ->name('qdn.maintenance.')
     ->group(function () {
+        // TELFORD Calendar (telford_calendar). Registered before /{list}
+        // so "calendar" isn't read as a lookup-list key.
+        Route::get('/calendar', [TelfordCalendarController::class, 'index'])->name('calendar.index');
+        Route::get('/calendar/export', [TelfordCalendarController::class, 'export'])->name('calendar.export');
+        Route::get('/calendar/template', [TelfordCalendarController::class, 'template'])->name('calendar.template');
+        Route::post('/calendar/import', [TelfordCalendarController::class, 'import'])->name('calendar.import');
+        Route::post('/calendar', [TelfordCalendarController::class, 'store'])->name('calendar.store');
+        Route::put('/calendar/{id}', [TelfordCalendarController::class, 'update'])->whereNumber('id')->name('calendar.update');
+        Route::delete('/calendar/{id}', [TelfordCalendarController::class, 'destroy'])->whereNumber('id')->name('calendar.destroy');
+
         Route::get('/{list?}', [LookupMaintenanceController::class, 'index'])->name('index');
         Route::post('/{list}', [LookupMaintenanceController::class, 'store'])->name('store');
         Route::put('/{list}/{id}', [LookupMaintenanceController::class, 'update'])->whereNumber('id')->name('update');
         Route::delete('/{list}/{id}', [LookupMaintenanceController::class, 'destroy'])->whereNumber('id')->name('destroy');
     });
+
 
 Route::fallback(function () {
     return Inertia::render('404');

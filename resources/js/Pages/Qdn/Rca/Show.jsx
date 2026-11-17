@@ -196,7 +196,7 @@ export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonR
 
                 {!canSubmit && (
                     <p className="qdn-restricted-notice">
-                        Only Supervisor, Section Head, or Manager can submit RCA. You can still fill this out, but
+                        Only Supervisor, Section Head, Engineer, Manager, or the Issued To employee's approver can submit RCA. You can still fill this out, but
                         submitting requires someone at that level to sign in and click Submit.
                     </p>
                 )}

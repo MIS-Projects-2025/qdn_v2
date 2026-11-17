@@ -7,7 +7,7 @@ use App\Models\Qdn;
 /**
  * Per-request "you have N pending" counts for the sidebar nav badges --
  * Issued (QDNs for My Department), Dept: RCA, Dept: CAPA, Dept: Approval,
- * QA Verification. Shared to every Inertia page via
+ * PE Queue, QA Verification. Shared to every Inertia page via
  * App\Http\Middleware\AuthMiddleware (see the two `Inertia::share(...)`
  * calls added there), so NavLinks.jsx can read `qdnCounts` from
  * usePage().props on any screen, not just the queue pages themselves.
@@ -42,6 +42,25 @@ class QdnNotificationCounts
         return 0;
     }
 
+    private static function departmentOrApproverCount(string $status, ?string $department): int
+    {
+        $approvees = CurrentEmployee::approveeIds();
+        if (!$department && !$approvees) {
+            return 0;
+        }
+
+        return Qdn::where('status', $status)
+            ->where(function ($q) use ($department, $approvees) {
+                if ($department) {
+                    $q->where('issued_department', $department);
+                }
+                if ($approvees) {
+                    $q->orWhereHas('validation', fn ($v) => $v->whereIn('issued_to_employee_id', $approvees));
+                }
+            })
+            ->count();
+    }
+
     public static function forCurrentEmployee(): array
     {
         $department = CurrentEmployee::department();
@@ -67,17 +86,13 @@ class QdnNotificationCounts
                     ->count()
                 : 0),
 
-            'rca' => $safe(fn () => $department
-                ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_RCA)
-                    ->where('issued_department', $department)
-                    ->count()
-                : 0),
+            // Department queue plus QDNs whose Issued To employee lists
+            // this user as approver1/2/3, same scope as rcaIndex.
+            'rca' => $safe(fn () => self::departmentOrApproverCount(Qdn::STATUS_FOR_DEPT_RCA, $department)),
 
-            'capa' => $safe(fn () => $department
-                ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_CAPA)
-                    ->where('issued_department', $department)
-                    ->count()
-                : 0),
+            // Department queue plus QDNs whose Issued To employee lists
+            // this user as approver1/2/3, same scope as capaIndex.
+            'capa' => $safe(fn () => self::departmentOrApproverCount(Qdn::STATUS_FOR_DEPT_CAPA, $department)),
 
             // Approver-based (masterlist.employee_approver), same scope as
             // QdnWorkflowController::approvalIndex.
@@ -85,6 +100,13 @@ class QdnNotificationCounts
                 ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_APPROVAL)
                     ->whereHas('validation', fn ($q) => $q->whereIn('issued_to_employee_id', $approvees))
                     ->count()
+                : 0),
+
+            // PE Queue: same two statuses PeQueueController::index lists
+            // (For PE Validation and Assigning + For PE Validation of RCA).
+            // Shared queue for all of Department: PE, zero for everyone else.
+            'peQueue' => $safe(fn () => CurrentEmployee::isPe()
+                ? Qdn::whereIn('status', [Qdn::STATUS_PENDING_PE, Qdn::STATUS_FOR_PE_RCA_VALIDATION])->count()
                 : 0),
 
             // PE / EE / QA / Production approval: QDNs still waiting on MY department.

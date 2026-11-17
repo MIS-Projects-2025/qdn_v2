@@ -25,6 +25,7 @@ class DashboardTest extends TestCase
             $t->string('classification')->nullable();
             $t->string('status');
             $t->string('issued_department')->nullable();
+            $t->string('issued_by_employee_id')->nullable();
             foreach (['customer_name', 'lot_id', 'device_name', 'package_name', 'issued_by', 'capa_approval_status', 'capa_approved_by', 'capa_approval_remarks'] as $c) {
                 $t->string($c)->nullable();
             }
@@ -128,6 +129,26 @@ class DashboardTest extends TestCase
                 ->has('personal.byMonth', 12)
                 ->where('personal.byMonth.11.total', 1)
                 ->has('personal.recent', 3));
+    }
+
+    public function test_counts_qdns_i_issued(): void
+    {
+        // By employee id, plus an older QDN that only has the issuer's name.
+        DB::table('qdns')->where('qdn_no', 'QDN-0004')->update(['issued_by_employee_id' => '1705', 'issued_by' => 'Juan Dela Cruz']);
+        DB::table('qdns')->where('qdn_no', 'QDN-0005')->update(['issued_by_employee_id' => '1705']);
+        DB::table('qdns')->where('qdn_no', 'QDN-0006')->update(['issued_by' => 'Juan Dela Cruz']);
+        // Same name but a different employee id: not mine.
+        DB::table('qdns')->where('qdn_no', 'QDN-0002')->update(['issued_by_employee_id' => '4004', 'issued_by' => 'Juan Dela Cruz']);
+
+        $this->as('Operator')->get('/' . env('APP_NAME', ''))
+            ->assertOk()
+            ->assertInertia(fn (Assert $p) => $p->where('personal.issuedByMe', 3));
+
+        $this->withSession(['emp_data' => [
+            'token' => 't', 'emp_id' => '2001', 'emp_name' => 'Maria Santos', 'emp_firstname' => 'Maria',
+            'emp_jobtitle' => 'Operator', 'emp_dept' => 'Production', 'emp_position' => '1',
+        ]])->get('/' . env('APP_NAME', ''))
+            ->assertInertia(fn (Assert $p) => $p->where('personal.issuedByMe', 0));
     }
 
     public function test_approver_sees_qdns_of_employees_they_approve(): void

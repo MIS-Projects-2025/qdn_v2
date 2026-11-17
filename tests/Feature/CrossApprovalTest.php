@@ -202,4 +202,38 @@ class CrossApprovalTest extends TestCase
             ->get("/qdn/cross-approval/{$this->qdnId}")
             ->assertInertia(fn (Assert $p) => $p->has('approvals', 4));
     }
+
+    /** /qdn/records/{qdn} carries the CAPA returns and PE / EE / QA / Production approvals the record view shows. */
+    public function test_record_view_includes_cross_approvals_and_capa_returns(): void
+    {
+        $qdnId = $this->qdnId;
+        DB::table('qdns')->where('id', $qdnId)->update([
+            'status' => 'for_cross_approval', 'capa_round' => 2,
+            'capa_approval_status' => 'correct', 'capa_approved_by' => 'Dept Mgr',
+        ]);
+        DB::table('qdn_cross_approvals')->insert([
+            ['qdn_id' => $qdnId, 'round' => 1, 'department_key' => 'pe', 'department_name' => 'Process Engineering',
+                'approved_by_name' => 'Old PE', 'approved_at' => now()->subDay(), 'created_at' => now(), 'updated_at' => now()],
+            ['qdn_id' => $qdnId, 'round' => 2, 'department_key' => 'ee', 'department_name' => 'Equipment Engineering',
+                'approved_by_name' => 'Carl EE', 'approved_at' => now(), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('qdn_capa_returns')->insert(['qdn_id' => $qdnId, 'round' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->withSession(['emp_data' => [
+            'token' => 't', 'emp_id' => '9001', 'emp_name' => 'Viewer', 'emp_jobtitle' => 'Engineer',
+            'emp_dept' => 'Quality Assurance', 'emp_position' => '1',
+        ]])->get("/qdn/records/{$qdnId}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $p) => $p->component('Qdn/Records/Show')
+                ->where('qdn.capa_approval_status', 'correct')
+                ->has('qdn.capa_returns', 1)
+                ->has('qdn.cross_approvals', 2)
+                ->where('qdn.cross_approval_summary.ee.approved', true)
+                ->where('qdn.cross_approval_summary.ee.approved_by', 'Carl EE')
+                // Round 1's PE sign-off doesn't count for round 2.
+                ->where('qdn.cross_approval_summary.pe.approved', false)
+                ->where('qdn.cross_approval_summary.qa.approved', false)
+                ->where('qdn.cross_approval_summary.prod.approved', false)
+                ->etc());
+    }
 }

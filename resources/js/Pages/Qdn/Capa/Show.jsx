@@ -843,8 +843,8 @@ export default function CapaShow({
 
                 {!canSubmit && (
                     <p className="qdn-restricted-notice">
-                        Only Supervisor, Section Head, or Manager can submit
-                        CAPA. You can still fill this out, but submitting
+                        Only Supervisor, Section Head, Engineer, Manager, or the
+                        Issued To employee's approver can submit CAPA. You can still fill this out, but submitting
                         requires someone at that level to sign in and click
                         Submit.
                     </p>

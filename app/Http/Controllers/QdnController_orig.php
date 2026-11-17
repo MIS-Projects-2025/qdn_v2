@@ -3,10 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreQdnRequest;
-use App\Models\AnalogCalendar;
+use App\Models\TelfordCalendar;
 use App\Models\Customer;
 use App\Models\Masterlist\Employee;
 use App\Models\Location;
+use App\Models\Lookups\Department;
 use App\Models\Machine;
 use App\Models\Nonconformity;
 use App\Models\Package;
@@ -33,7 +34,12 @@ class QdnController extends Controller
         return Inertia::render('Qdn/Create', [
             'customers' => Customer::orderBy('customer_name')->get(['id', 'customer_name']),
             'machines' => Machine::orderBy('machine_num')->get(['id', 'machine_num']),
-            'locations' => Location::orderBy('location_name')->get(['id', 'location_name']),
+            'locations' => Location::orderBy('location_name')->get(['id', 'location_name'])
+                ->map(fn ($l) => [
+                    'id' => $l->id,
+                    'location_name' => $l->location_name,
+                    'requires_photos' => Qdn::requiresPhotos($l->location_name),
+                ]),
             'nonconformities' => Nonconformity::orderBy('nonconformity_name')
                 ->get(['id', 'nonconformity_name', 'nonconformity_category'])
                 ->map(fn(Nonconformity $n) => [
@@ -52,6 +58,16 @@ class QdnController extends Controller
             // CurrentEmployee). NOT $request->user(), which your app never
             // populates via Laravel's Auth facade.
             'issuedByName' => CurrentEmployee::name(),
+            // Customer: Others -- every department name from the masterlist
+            // (HR, MIS, Facility, Store, Finance, Purchasing, MRM, ...) so
+            // the issuer can pick the Issued Department first and the
+            // Issued To search is limited to that department.
+            'departments' => Department::query()
+                ->whereNotNull('dep_name')
+                ->where('dep_name', '!=', '')
+                ->orderBy('dep_name')
+                ->distinct()
+                ->pluck('dep_name'),
         ]);
     }
 
@@ -161,7 +177,28 @@ class QdnController extends Controller
             'issued_department' => $issuedToEmployee?->DEPARTMENT,
             // Server-derived from session('emp_data'), not client input.
             'issued_by' => CurrentEmployee::name(),
+            // The issuer's own department: the "Issuing Dept" approver in
+            // PE / EE / QA / Production approval for Customer: Others.
+            'issued_by_employee_id' => CurrentEmployee::employId(),
+            'issuing_department' => CurrentEmployee::department(),
         ]);
+
+        if (Qdn::requiresPhotos($location?->location_name)) {
+            foreach (array_values($request->file('photos', [])) as $i => $file) {
+                $path = $file->storeAs(
+                    "qdn-photos/{$qdn->id}",
+                    \Illuminate\Support\Str::uuid() . '.jpg',
+                    \App\Models\QdnPhoto::DISK
+                );
+                $qdn->photos()->create([
+                    'path' => $path,
+                    'original_name' => $file->getClientOriginalName(),
+                    'size' => $file->getSize(),
+                    'sort_order' => $i,
+                    'uploaded_by' => CurrentEmployee::name(),
+                ]);
+            }
+        }
 
         if ($issuedToEmployee) {
             QdnValidation::create([
@@ -233,13 +270,13 @@ class QdnController extends Controller
         $query = Qdn::query();
 
         // Work Week -- identical handling to records() below, backed by
-        // the analog_calendar table (see App\Models\AnalogCalendar).
+        // the TELFORD calendar (telford_calendar, see App\Models\TelfordCalendar).
         // Wins over an explicit date range if both are somehow submitted
         // at once (the UI only ever sends one or the other).
         $workWeek = trim((string) $request->query('workweek', ''));
         if ($workWeek !== '') {
             [$year, $ww] = array_pad(explode('-', $workWeek, 2), 2, null);
-            $range = AnalogCalendar::query()
+            $range = TelfordCalendar::query()
                 ->where('cal_year', $year)
                 ->where('cal_workweek', $ww)
                 ->selectRaw('MIN(cal_date) as date_start, MAX(cal_date) as date_end')
@@ -391,7 +428,9 @@ class QdnController extends Controller
                     ->distinct()
                     ->orderBy('defect_source_name')
                     ->pluck('defect_source_name'),
-                'workWeeks' => AnalogCalendar::query()
+                'workWeeks' => TelfordCalendar::query()
+                    ->whereNotNull('cal_year')
+                    ->whereNotNull('cal_workweek')
                     ->selectRaw('cal_year, cal_workweek, MIN(cal_date) as date_start, MAX(cal_date) as date_end')
                     ->groupBy('cal_year', 'cal_workweek')
                     ->orderByDesc('cal_year')
@@ -895,6 +934,7 @@ class QdnController extends Controller
             Qdn::STATUS_FOR_PE_RCA_VALIDATION,
             Qdn::STATUS_FOR_DEPT_CAPA,
             Qdn::STATUS_FOR_DEPT_APPROVAL,
+            Qdn::STATUS_FOR_CROSS_APPROVAL,
             Qdn::STATUS_FOR_QA_VERIFICATION,
         ],
         'valid' => [Qdn::STATUS_CLOSED],
@@ -904,8 +944,8 @@ class QdnController extends Controller
     /**
      * Full QDN record list -- searchable, filterable, sortable, paginated.
      * Not department-scoped: full history view across every QDN. The
-     * "Work Week" filter is keyed off the company's own analog_calendar
-     * table -- see the workweek handling below and App\Models\AnalogCalendar.
+     * "Work Week" filter is keyed off the TELFORD calendar (telford_calendar)
+     * -- see the workweek handling below and App\Models\TelfordCalendar.
      */
     public function records(Request $request): Response
     {
@@ -935,9 +975,9 @@ class QdnController extends Controller
             $query->whereIn('status', self::RECORDS_STATUS_GROUPS[$statusGroup]);
         }
 
-        // "Work Week" -- filters by the company's own analog_calendar
-        // calendar (one row per calendar day tagged with cal_year/
-        // cal_workweek, see App\Models\AnalogCalendar), not a generic
+        // "Work Week" -- filters by the TELFORD calendar (telford_calendar,
+        // one row per calendar day tagged with cal_year/cal_workweek,
+        // see App\Models\TelfordCalendar), not a generic
         // rolling "last 7 days." The selected value is "{cal_year}-
         // {cal_workweek}" (e.g. "2026-34"); MIN/MAX(cal_date) for that
         // pair gives the actual date range, checked against the QDN's
@@ -947,7 +987,7 @@ class QdnController extends Controller
         $workWeek = trim((string) $request->query('workweek', ''));
         if ($workWeek !== '') {
             [$year, $ww] = array_pad(explode('-', $workWeek, 2), 2, null);
-            $range = AnalogCalendar::query()
+            $range = TelfordCalendar::query()
                 ->where('cal_year', $year)
                 ->where('cal_workweek', $ww)
                 ->selectRaw('MIN(cal_date) as date_start, MAX(cal_date) as date_end')
@@ -1034,7 +1074,9 @@ class QdnController extends Controller
                 // calendar, newest first, each carrying the actual date
                 // range so the dropdown can show "WW34 · 2026 (Aug 18–24)"
                 // instead of a bare number.
-                'workWeeks' => AnalogCalendar::query()
+                'workWeeks' => TelfordCalendar::query()
+                    ->whereNotNull('cal_year')
+                    ->whereNotNull('cal_workweek')
                     ->selectRaw('cal_year, cal_workweek, MIN(cal_date) as date_start, MAX(cal_date) as date_end')
                     ->groupBy('cal_year', 'cal_workweek')
                     ->orderByDesc('cal_year')
