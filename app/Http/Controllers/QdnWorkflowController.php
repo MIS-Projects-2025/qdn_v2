@@ -69,7 +69,7 @@ class QdnWorkflowController extends Controller
      */
     private function assertOwningDepartmentOrIssuedToApprover(Qdn $qdn): void
     {
-        if (CurrentEmployee::isIssuedToApproverFor($qdn)) {
+        if (self::isIssuedToApproverFor($qdn)) {
             return;
         }
         $this->assertOwningDepartment($qdn);
@@ -81,20 +81,20 @@ class QdnWorkflowController extends Controller
      */
     private function departmentOrApproverQueue(string $status)
     {
-        $department = CurrentEmployee::department();
+        $departments = self::myDepartmentKeys();
         $approvees = CurrentEmployee::approveeIds();
 
-        if (!$department && !$approvees) {
+        if (!$departments && !$approvees) {
             return collect();
         }
 
         return Qdn::where('status', $status)
-            ->where(function ($q) use ($department, $approvees) {
-                if ($department) {
-                    $q->where('issued_department', $department);
+            ->where(function ($q) use ($departments, $approvees) {
+                if ($departments) {
+                    $q->whereIn(DB::raw('LOWER(TRIM(issued_department))'), $departments);
                 }
                 if ($approvees) {
-                    $q->orWhereHas('validation', fn ($v) => $v->whereIn('issued_to_employee_id', $approvees));
+                    $q->orWhereHas('validation', fn($v) => $v->whereIn('issued_to_employee_id', $approvees));
                 }
             })
             ->orderBy('created_at')
@@ -125,22 +125,23 @@ class QdnWorkflowController extends Controller
      */
     private function assertCanAnswerRcaOrCapa(Qdn $qdn): void
     {
-        if (!CurrentEmployee::canAnswerRcaOrCapaFor($qdn)) {
-            throw new HttpException(403, 'Only Supervisor, Section Head, Engineer, Manager, or the Issued To employee\'s approver can submit this.');
+        if (!self::canAnswerRcaOrCapaFor($qdn)) {
+            throw new HttpException(403, self::rcaCapaBlockReason($qdn)
+                ?? 'Only a Supervisor, Section Head, Engineer or Manager of the Issued To department, or the Issued To employee\'s approver, can submit this.');
         }
     }
 
     /**
-     * "Approver should be Section Head and Manager" -- narrower than
-     * assertCanAnswerRcaOrCapa() above (excludes plain Supervisor).
-     * Everyone in the owning department can still see the "For Approval"
-     * queue and open a QDN's approval page; only this checks the actual
-     * Correct/Wrong decision in approvalStore().
+     * Correct / Wrong at Dept Approval: Supervisor / Section Head / Engineer /
+     * Manager of the Issued To department, or approver1/2/3 of the Issued To
+     * employee (CurrentEmployee::canApproveDeptFor). Everyone in the owning
+     * department can still open the page to view it.
      */
     private function assertIsApproverFor(Qdn $qdn): void
     {
-        if (!CurrentEmployee::isApproverFor($qdn->validation?->issued_to_employee_id)) {
-            throw new HttpException(403, 'Only the Issued To employee\'s approver (employee_approver) can approve this CAPA.');
+        if (!CurrentEmployee::canApproveDeptFor($qdn)) {
+            throw new HttpException(403, self::approvalBlockReason($qdn)
+                ?? 'Only a Supervisor, Section Head, Engineer or Manager of the Issued To department, or the Issued To employee\'s approver, can approve this CAPA.');
         }
     }
 
@@ -203,11 +204,12 @@ class QdnWorkflowController extends Controller
             'qdn' => $qdn,
             // Whole department can open/fill this form, but only
             // Supervisor-and-up (or position code 2/3/4) can submit it --
-            // see CurrentEmployee::canAnswerRcaOrCapa() /
+            // see canAnswerRcaOrCapaFor() at the bottom of this file /
             // assertCanAnswerRcaOrCapa(). The page uses this to disable
             // the Submit button and show a notice rather than let someone
             // fill the whole thing out and hit a 403 at the end.
-            'canSubmit' => CurrentEmployee::canAnswerRcaOrCapaFor($qdn),
+            'canSubmit' => self::canAnswerRcaOrCapaFor($qdn),
+            'submitBlockedReason' => self::rcaCapaBlockReason($qdn),
             // Existing rows, grouped so the form can pre-fill each of the
             // three repeatable sections (e.g. when PE rejected the RCA and
             // sent it back for rework).
@@ -503,8 +505,9 @@ class QdnWorkflowController extends Controller
         return Inertia::render('Qdn/Capa/Show', [
             'qdn' => $qdn,
             // Same "visible to all, action restricted" pattern as
-            // rcaShow() -- see CurrentEmployee::canAnswerRcaOrCapa().
-            'canSubmit' => CurrentEmployee::canAnswerRcaOrCapaFor($qdn),
+            // rcaShow() -- see canAnswerRcaOrCapaFor() at the bottom of this file.
+            'canSubmit' => self::canAnswerRcaOrCapaFor($qdn),
+            'submitBlockedReason' => self::rcaCapaBlockReason($qdn),
             'lastReturn' => $lastReturn ? [
                 'stage' => $lastReturn->stage,
                 'returned_by' => $lastReturn->returned_by,
@@ -705,19 +708,41 @@ class QdnWorkflowController extends Controller
 
     public function approvalIndex(): Response
     {
-        // QDNs awaiting approval whose Issued To employee lists the current
-        // user as approver1/2/3 in masterlist.employee_approver.
-        $approvees = CurrentEmployee::approveeIds();
-
+        // QDNs awaiting approval that this user can decide: their own
+        // department's (Supervisor / Section Head / Engineer / Manager), plus
+        // any whose Issued To employee lists them as approver1/2/3.
         return Inertia::render('Qdn/Approval/Index', [
             'department' => CurrentEmployee::department(),
-            'qdns' => $approvees
-                ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_APPROVAL)
-                ->whereHas('validation', fn ($q) => $q->whereIn('issued_to_employee_id', $approvees))
-                ->orderBy('created_at')
-                ->get(self::SUMMARY_COLUMNS)
-                : collect(),
+            'qdns' => self::approvalQueue(),
         ]);
+    }
+
+    /** Dept Approval queue; QdnNotificationCounts' approval badge uses the same query. */
+    public static function approvalQueueQuery()
+    {
+        $departments = CurrentEmployee::hasDepartmentRole() ? self::myDepartmentKeys() : [];
+        $approvees = CurrentEmployee::approveeIds();
+
+        if (!$departments && !$approvees) {
+            return null;
+        }
+
+        return Qdn::where('status', Qdn::STATUS_FOR_DEPT_APPROVAL)
+            ->where(function ($q) use ($departments, $approvees) {
+                if ($departments) {
+                    $q->whereIn(DB::raw('LOWER(TRIM(issued_department))'), $departments);
+                }
+                if ($approvees) {
+                    $q->orWhereHas('validation', fn($v) => $v->whereIn('issued_to_employee_id', $approvees));
+                }
+            });
+    }
+
+    private static function approvalQueue()
+    {
+        $query = self::approvalQueueQuery();
+
+        return $query ? $query->orderBy('created_at')->get(self::SUMMARY_COLUMNS) : collect();
     }
 
     public function approvalShow(Qdn $qdn): Response
@@ -734,11 +759,13 @@ class QdnWorkflowController extends Controller
 
         return Inertia::render('Qdn/Approval/Show', [
             'qdn' => $qdn,
-            // Whole department can see this queue/page; only Section
-            // Head/Manager can submit the Correct/Wrong decision -- see
+            // Whole department can see this page; only Supervisor / Section
+            // Head / Engineer / Manager of the Issued To department, or the
+            // Issued To employee's approver, can decide -- see
             // assertIsApproverFor(). The page uses this to disable the
             // decision buttons and show a notice instead of a raw 403.
-            'canApprove' => CurrentEmployee::isApproverFor($qdn->validation?->issued_to_employee_id),
+            'canApprove' => CurrentEmployee::canApproveDeptFor($qdn),
+            'approveBlockedReason' => self::approvalBlockReason($qdn),
         ]);
     }
 
@@ -876,5 +903,73 @@ class QdnWorkflowController extends Controller
         }
 
         return redirect()->route('qa.verification.index')->with('success', $message);
+    }
+
+    // -- RCA / CAPA / Approval submit permission --------------------------
+    //
+    // The rule lives in CurrentEmployee (canAnswerRcaOrCapaFor /
+    // canApproveDeptFor / hasDepartmentRoleIn), shared with the sidebar
+    // badges and the PE / EE / QA / Production approval:
+    //   Supervisor / Section Head / Engineer / Manager (or position code
+    //   2/3/4) in the QDN's Issued To department, or approver1/2/3 of the
+    //   Issued To employee. Customer: Others keeps its issuer / Issued To rule
+    //   for RCA / CAPA.
+
+    private static function isIssuedToApproverFor(Qdn $qdn): bool
+    {
+        return CurrentEmployee::isIssuedToApproverFor($qdn);
+    }
+
+    private static function canAnswerRcaOrCapaFor(Qdn $qdn): bool
+    {
+        return CurrentEmployee::canAnswerRcaOrCapaFor($qdn);
+    }
+
+    /** Why the current employee can't submit RCA / CAPA here, or null if they can. */
+    private static function rcaCapaBlockReason(Qdn $qdn): ?string
+    {
+        if (static::canAnswerRcaOrCapaFor($qdn)) {
+            return null;
+        }
+
+        return self::blockReason($qdn);
+    }
+
+    /** Why the current employee can't approve this CAPA, or null if they can. */
+    private static function approvalBlockReason(Qdn $qdn): ?string
+    {
+        if (CurrentEmployee::canApproveDeptFor($qdn)) {
+            return null;
+        }
+
+        return self::blockReason($qdn);
+    }
+
+    private static function blockReason(Qdn $qdn): string
+    {
+        $issuedToId = trim((string) $qdn->validation?->issued_to_employee_id);
+        $reasons = [];
+        if ($role = CurrentEmployee::departmentRoleBlockReason($qdn->issued_department)) {
+            $reasons[] = $role;
+        }
+        $reasons[] = 'you are not approver 1, 2 or 3 of the Issued To employee'
+            . ($issuedToId !== '' ? " ({$issuedToId})" : '');
+
+        return 'You can\'t submit because ' . implode('; ', $reasons) . '.';
+    }
+
+    /**
+     * Lower-cased department names the current employee belongs to
+     * (Authify emp_dept and masterlist department), for queue queries
+     * against qdns.issued_department.
+     *
+     * @return string[]
+     */
+    private static function myDepartmentKeys(): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            fn($d) => CurrentEmployee::normalizeDepartment($d),
+            CurrentEmployee::departmentCandidates()
+        ))));
     }
 }

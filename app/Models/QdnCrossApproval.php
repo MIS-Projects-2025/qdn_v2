@@ -35,7 +35,7 @@ class QdnCrossApproval extends Model
     public static function departments(): array
     {
         return [
-            self::DEPT_PE => ['label' => 'Process Engineering', 'names' => [CurrentEmployee::DEPARTMENT_PE]],
+            self::DEPT_PE => ['label' => 'Process Engineering', 'names' => CurrentEmployee::DEPARTMENT_PE_NAMES],
             self::DEPT_EE => ['label' => 'Equipment Engineering', 'names' => CurrentEmployee::DEPARTMENT_EE],
             self::DEPT_QA => ['label' => 'QA', 'names' => CurrentEmployee::DEPARTMENT_QA],
             self::DEPT_PROD => ['label' => 'Production', 'names' => CurrentEmployee::DEPARTMENT_PRODUCTION],

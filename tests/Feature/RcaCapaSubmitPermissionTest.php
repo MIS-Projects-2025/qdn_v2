@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Qdn;
-use App\Support\CurrentEmployee;
+use App\Http\Controllers\QdnWorkflowController;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -140,9 +140,32 @@ class RcaCapaSubmitPermissionTest extends TestCase
     {
         foreach (['Production Supervisor' => true, 'Section Head - Mold' => true, 'Senior Engineer' => true,
             'Process Engineer II' => true, 'Assistant Manager' => true, 'Engineering Technician' => false,
-            'Production Operator' => false] as $title => $expected) {
+            'Production Operator' => false, 'Process Engr.' => true, 'QA Engr' => true, "Sr. Eng'r" => true,
+            'Prod Supvr' => true, 'Sec. Head' => true, 'Asst. Mgr' => true, 'Engineering Clerk' => false,
+            'Support Staff' => false] as $title => $expected) {
             session(['emp_data' => ['emp_id' => '', 'emp_jobtitle' => $title, 'emp_position' => '1']]);
-            $this->assertSame($expected, CurrentEmployee::hasRcaCapaTitle(), $title);
+            $this->assertSame($expected, (fn () => self::hasRcaCapaTitle())->call(new QdnWorkflowController), $title);
         }
+    }
+
+    public function test_engineer_by_authify_position_name_can_submit(): void
+    {
+        $this->withSession(['emp_data' => [
+            'token' => 't', 'emp_id' => '8001', 'emp_name' => 'Test', 'emp_jobtitle' => 'Staff',
+            'emp_dept' => 'Production', 'emp_position' => 'Engineer',
+        ]])->post("/qdn/rca/{$this->qdnId}", $this->emptyRca())->assertRedirect();
+
+        $this->assertSame(Qdn::STATUS_FOR_DEPT_CAPA, DB::table('qdns')->value('status'));
+    }
+
+    public function test_blocked_user_is_told_which_check_failed(): void
+    {
+        $response = $this->as('8005', 'Process Engineer', 'Production')
+            ->post("/qdn/rca/{$this->qdnId}", $this->emptyRca());
+
+        $response->assertForbidden();
+        $this->assertStringContainsString('not in the same factory', $response->exception->getMessage());
+        $this->assertStringContainsString('your employee_factory: 2', $response->exception->getMessage());
+        $this->assertStringNotContainsString('your title', $response->exception->getMessage());
     }
 }

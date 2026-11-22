@@ -23,8 +23,8 @@ class QdnNotificationCounts
 {
     public static function crossApprovalCount(): int
     {
-        $pending = fn (string $key) => Qdn::where('status', Qdn::STATUS_FOR_CROSS_APPROVAL)
-            ->whereDoesntHave('crossApprovals', fn ($q) => $q
+        $pending = fn(string $key) => Qdn::where('status', Qdn::STATUS_FOR_CROSS_APPROVAL)
+            ->whereDoesntHave('crossApprovals', fn($q) => $q
                 ->where('department_key', $key)
                 ->whereRaw('qdn_cross_approvals.round = COALESCE(qdns.capa_round, 1)'));
 
@@ -45,17 +45,23 @@ class QdnNotificationCounts
     private static function departmentOrApproverCount(string $status, ?string $department): int
     {
         $approvees = CurrentEmployee::approveeIds();
-        if (!$department && !$approvees) {
+        // Authify and masterlist department, case-insensitive (same as
+        // QdnWorkflowController::departmentOrApproverQueue).
+        $departments = array_values(array_unique(array_filter(array_map(
+            fn($d) => CurrentEmployee::normalizeDepartment($d),
+            CurrentEmployee::departmentCandidates()
+        ))));
+        if (!$departments && !$approvees) {
             return 0;
         }
 
         return Qdn::where('status', $status)
-            ->where(function ($q) use ($department, $approvees) {
-                if ($department) {
-                    $q->where('issued_department', $department);
+            ->where(function ($q) use ($departments, $approvees) {
+                if ($departments) {
+                    $q->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(TRIM(issued_department))'), $departments);
                 }
                 if ($approvees) {
-                    $q->orWhereHas('validation', fn ($v) => $v->whereIn('issued_to_employee_id', $approvees));
+                    $q->orWhereHas('validation', fn($v) => $v->whereIn('issued_to_employee_id', $approvees));
                 }
             })
             ->count();
@@ -70,7 +76,7 @@ class QdnNotificationCounts
         // rescue() return null for the whole array, which wiped every
         // badge at once. Now a failure only zeroes that one badge and is
         // logged.
-        $safe = fn (callable $count) => (int) rescue($count, 0, report: true);
+        $safe = fn(callable $count) => (int) rescue($count, 0, report: true);
 
         return [
             // "QDNs for My Department" is a whole-lifecycle status board
@@ -79,40 +85,39 @@ class QdnNotificationCounts
             // cover "needs your action right now," so this one is the
             // department's overall still-open count (everything except
             // the two terminal statuses).
-            'issued' => $safe(fn () => $department
+            'issued' => $safe(fn() => $department
                 ? Qdn::whereIn('status', Qdn::DEPARTMENT_VISIBLE_STATUSES)
-                    ->whereNotIn('status', [Qdn::STATUS_CLOSED, Qdn::STATUS_INVALID_DISPOSITION])
-                    ->where('issued_department', $department)
-                    ->count()
+                ->whereNotIn('status', [Qdn::STATUS_CLOSED, Qdn::STATUS_INVALID_DISPOSITION])
+                ->where('issued_department', $department)
+                ->count()
                 : 0),
 
             // Department queue plus QDNs whose Issued To employee lists
             // this user as approver1/2/3, same scope as rcaIndex.
-            'rca' => $safe(fn () => self::departmentOrApproverCount(Qdn::STATUS_FOR_DEPT_RCA, $department)),
+            'rca' => $safe(fn() => self::departmentOrApproverCount(Qdn::STATUS_FOR_DEPT_RCA, $department)),
 
             // Department queue plus QDNs whose Issued To employee lists
             // this user as approver1/2/3, same scope as capaIndex.
-            'capa' => $safe(fn () => self::departmentOrApproverCount(Qdn::STATUS_FOR_DEPT_CAPA, $department)),
+            'capa' => $safe(fn() => self::departmentOrApproverCount(Qdn::STATUS_FOR_DEPT_CAPA, $department)),
 
-            // Approver-based (masterlist.employee_approver), same scope as
-            // QdnWorkflowController::approvalIndex.
-            'approval' => $safe(fn () => ($approvees = CurrentEmployee::approveeIds())
-                ? Qdn::where('status', Qdn::STATUS_FOR_DEPT_APPROVAL)
-                    ->whereHas('validation', fn ($q) => $q->whereIn('issued_to_employee_id', $approvees))
-                    ->count()
+            // Supervisor / Section Head / Engineer / Manager of the Issued To
+            // department, plus the Issued To employee's approver1/2/3 -- the
+            // same query as QdnWorkflowController::approvalIndex.
+            'approval' => $safe(fn() => ($query = \App\Http\Controllers\QdnWorkflowController::approvalQueueQuery())
+                ? $query->count()
                 : 0),
 
             // PE Queue: same two statuses PeQueueController::index lists
             // (For PE Validation and Assigning + For PE Validation of RCA).
             // Shared queue for all of Department: PE, zero for everyone else.
-            'peQueue' => $safe(fn () => CurrentEmployee::isPe()
+            'peQueue' => $safe(fn() => CurrentEmployee::isPe()
                 ? Qdn::whereIn('status', [Qdn::STATUS_PENDING_PE, Qdn::STATUS_FOR_PE_RCA_VALIDATION])->count()
                 : 0),
 
             // PE / EE / QA / Production approval: QDNs still waiting on MY department.
-            // Plus, for a Supervisor+ of any other department, Customer:
+            // Plus, for a Supervisor / Section Head / Engineer / Manager of any other department, Customer:
             // Others QDNs their department raised ("Issuing Dept" approver).
-            'crossApproval' => $safe(fn () => self::crossApprovalCount()),
+            'crossApproval' => $safe(fn() => self::crossApprovalCount()),
 
             // Not department-scoped -- same shared-queue model as
             // QdnWorkflowController::qaIndex (any Department: QA employee
@@ -120,7 +125,7 @@ class QdnNotificationCounts
             // department's). Zero for everyone else so the badge never
             // shows on QA Verification for people who can't even see that
             // link (NavLinks already hides it behind isQa).
-            'qaVerification' => $safe(fn () => CurrentEmployee::isQa()
+            'qaVerification' => $safe(fn() => CurrentEmployee::isQa()
                 ? Qdn::where('status', Qdn::STATUS_FOR_QA_VERIFICATION)->count()
                 : 0),
         ];

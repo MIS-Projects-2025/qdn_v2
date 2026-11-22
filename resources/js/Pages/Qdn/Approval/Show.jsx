@@ -24,15 +24,18 @@ import BackLink from "@/Components/BackLink";
  * Posts { decision, remarks } directly via router.post rather than
  * through useForm, same stale-closure-avoidance reasoning as those pages.
  *
- * `canApprove` is true only for the Issued To employee's approver1/2/3 in masterlist.employee_approver (was: Section Head/Manager (plain
- * Supervisor included) -- the whole department can still see this queue
- * and open a QDN's approval page, but only Section Head/Manager can
- * actually submit the Correct/Wrong decision (see
- * QdnWorkflowController@assertIsApprover).
+ * `canApprove` is true for a Supervisor / Section Head / Engineer / Manager
+ * of the Issued To department, or the Issued To employee's approver1/2/3 in
+ * masterlist.employee_approver (CurrentEmployee::canApproveDeptFor). The
+ * whole department can still open this page to view it.
  *
- * Props (from QdnWorkflowController@approvalShow): qdn, canApprove
+ * Props (from QdnWorkflowController@approvalShow): qdn, canApprove, approveBlockedReason
  */
-export default function ApprovalShow({ qdn, canApprove }) {
+export default function ApprovalShow({
+    qdn,
+    canApprove,
+    approveBlockedReason,
+}) {
     const [decision, setDecision] = useState(null);
     const [remarks, setRemarks] = useState("");
     const [processing, setProcessing] = useState(false);
@@ -41,7 +44,9 @@ export default function ApprovalShow({ qdn, canApprove }) {
     function handleSubmit(e) {
         e.preventDefault();
         if (!canApprove) {
-            setError("Only the assigned approver of the Issued To employee can submit this decision.");
+            setError(
+                "Only a Supervisor, Section Head, Engineer or Manager of the Issued To department, or the Issued To employee's approver, can submit this decision.",
+            );
             return;
         }
         if (!decision) {
@@ -85,9 +90,16 @@ export default function ApprovalShow({ qdn, canApprove }) {
 
                 {!canApprove && (
                     <p className="qdn-restricted-notice">
-                        Only the Issued To employee's assigned approver
-                        (approver 1, 2 or 3) can approve this CAPA. You can
-                        view this QDN, but not submit a decision.
+                        Only a Supervisor, Section Head, Engineer or Manager of
+                        the Issued To department, or the Issued To employee's
+                        approver (approver 1, 2 or 3), can approve this CAPA.
+                        You can view this QDN, but not submit a decision.
+                        {approveBlockedReason && (
+                            <>
+                                <br />
+                                {approveBlockedReason}
+                            </>
+                        )}
                     </p>
                 )}
 
@@ -115,8 +127,9 @@ export default function ApprovalShow({ qdn, canApprove }) {
                 </div>
 
                 <p className="qdn-hint">
-                    Correct routes this QDN to Process Engineering, Equipment Engineering, QA and Production for approval, then QA Verification.
-                    Wrong returns it to{" "}
+                    Correct routes this QDN to Process Engineering, Equipment
+                    Engineering, QA and Production for approval, then QA
+                    Verification. Wrong returns it to{" "}
                     {qdn.issued_department ?? "the issuing department"} to
                     update CAPA — remarks are required so they know what to fix.
                 </p>

@@ -16,8 +16,8 @@ use Inertia\Response;
  * PE / EE / QA / Production approval -- the step after Dept Approval.
  *
  * Each of Process Engineering, Equipment Engineering, QA and Production must approve
- * once. Any Supervisor / Section Head / Manager (job title) in that
- * department can do it; the first one wins and everyone else in that
+ * once. Any Supervisor / Section Head / Engineer / Manager in that
+ * department can do it (CurrentEmployee::hasDepartmentRole); the first one wins and everyone else in that
  * department then sees "Approved by ... on ...". When all four have
  * approved, the QDN moves on to QA Verification.
  */
@@ -31,7 +31,7 @@ class QdnCrossApprovalController extends Controller
             ->with('crossApprovals')
             ->orderBy('created_at')
             ->get(['id', 'qdn_no', 'customer_name', 'device_name', 'classification', 'issued_department', 'issuing_department', 'capa_round', 'status', 'created_at'])
-            ->map(fn (Qdn $qdn) => [
+            ->map(fn(Qdn $qdn) => [
                 'id' => $qdn->id,
                 'qdn_no' => $qdn->qdn_no,
                 'customer_name' => $qdn->customer_name,
@@ -68,8 +68,8 @@ class QdnCrossApprovalController extends Controller
             // Shown under "Your approval" when the account can't approve,
             // so it's clear which department / titles the app read.
             'viewer' => [
-                'department' => CurrentEmployee::department(),
-                'titles' => CurrentEmployee::titleCandidates(),
+                'department' => implode(' / ', CurrentEmployee::departmentCandidates()),
+                'titles' => CurrentEmployee::departmentRoleTitleCandidates(),
             ],
         ]);
     }
@@ -79,7 +79,7 @@ class QdnCrossApprovalController extends Controller
         $data = $request->validate(['remarks' => ['nullable', 'string', 'max:2000']]);
 
         $key = CurrentEmployee::crossApprovalDepartmentKeyFor($qdn);
-        abort_if($key === null, 403, 'Only a Supervisor, Section Head or Manager of Process Engineering, Equipment Engineering, QA, Production or the issuing department can approve.');
+        abort_if($key === null, 403, 'Only a Supervisor, Section Head, Engineer or Manager of Process Engineering, Equipment Engineering, QA, Production or the issuing department can approve.');
 
         $label = QdnCrossApproval::departmentsFor($qdn)[$key]['label'];
 
@@ -140,7 +140,7 @@ class QdnCrossApprovalController extends Controller
 
     private function departmentLabels(): array
     {
-        return collect(QdnCrossApproval::departments())->map(fn ($d) => $d['label'])->all();
+        return collect(QdnCrossApproval::departments())->map(fn($d) => $d['label'])->all();
     }
 
     /** [key => [label, approved, approved_by, title, approved_at, remarks]] for the current round. */

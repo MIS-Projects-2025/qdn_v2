@@ -86,7 +86,7 @@ class CurrentEmployee
             return null;
         }
 
-        return once(fn () => rescue(function () use ($empId) {
+        return once(fn() => rescue(function () use ($empId) {
             $id = \App\Models\Masterlist\Employee::find($empId)?->currentPosition?->empposition_id;
 
             return $id === null ? null : trim((string) $id);
@@ -97,14 +97,16 @@ class CurrentEmployee
     {
         // Trimmed, and "02" counts as "2" -- an exact === on the raw
         // session value missed codes with padding or whitespace.
-        $normalize = fn ($v) => is_numeric(trim((string) $v))
+        $normalize = fn($v) => is_numeric(trim((string) $v))
             ? (string) (int) trim((string) $v)
             : strtolower(trim((string) $v));
         $positions = array_map($normalize, $positions);
 
         foreach ([static::position(), static::masterlistPositionId()] as $candidate) {
-            if ($candidate !== null && trim($candidate) !== ''
-                && in_array($normalize($candidate), $positions, true)) {
+            if (
+                $candidate !== null && trim($candidate) !== ''
+                && in_array($normalize($candidate), $positions, true)
+            ) {
                 return true;
             }
         }
@@ -158,13 +160,6 @@ class CurrentEmployee
     // "Approver should be Section Head and Manager").
     public const APPROVER_TITLES = ['Section Head', 'Manager'];
 
-    // Additionally let these authify position codes submit RCA/CAPA even
-    // when emp_jobtitle doesn't contain Supervisor/Section Head/Manager --
-    // per the user: "EMPPOSITION=2, 3, 4 can submit RCA and CAPA". Does
-    // NOT extend to Dept Approval (isApprover() below) -- that one was
-    // never asked to change.
-    public const RCA_CAPA_ALLOWED_POSITIONS = ['2', '3', '4'];
-
     public static function isSupervisorAndUp(): bool
     {
         return static::jobTitleContainsAny(self::SUPERVISOR_AND_UP_TITLES);
@@ -192,12 +187,12 @@ class CurrentEmployee
 
     private static function approveeIdsFor(string $empId): array
     {
-        return once(fn () => rescue(fn () => \App\Models\Masterlist\EmployeeApprover::query()
-            ->where(fn ($q) => $q->where('approver1', $empId)
+        return once(fn() => rescue(fn() => \App\Models\Masterlist\EmployeeApprover::query()
+            ->where(fn($q) => $q->where('approver1', $empId)
                 ->orWhere('approver2', $empId)
                 ->orWhere('approver3', $empId))
             ->pluck('employid')
-            ->map(fn ($id) => trim((string) $id))
+            ->map(fn($id) => trim((string) $id))
             ->filter()
             ->unique()
             ->values()
@@ -230,12 +225,12 @@ class CurrentEmployee
             return [];
         }
 
-        return once(fn () => rescue(fn () => \App\Models\Masterlist\EmployeeFactory::query()
+        return once(fn() => rescue(fn() => \App\Models\Masterlist\EmployeeFactory::query()
             ->where('EMPLOYID', $empId)
             ->whereNotNull('factory_id')
             ->pluck('factory_id')
-            ->map(fn ($id) => trim((string) $id))
-            ->filter(fn ($id) => $id !== '')
+            ->map(fn($id) => trim((string) $id))
+            ->filter(fn($id) => $id !== '')
             ->unique()
             ->values()
             ->all(), [], report: true));
@@ -260,43 +255,70 @@ class CurrentEmployee
         return static::isApproverFor($qdn->validation?->issued_to_employee_id);
     }
 
+    // -- Department role: Supervisor / Section Head / Engineer / Manager ----
+    //
+    // Per the user: "RCA, CAPA and Approval: any Supervisor, Engineer,
+    // Section Head or Manager from their department can submit". One rule
+    // shared by Dept RCA, Dept CAPA, Dept Approval and the PE / EE / QA /
+    // Production (+ Issuing Dept) approval, so they never disagree.
+
+    // Position codes (Authify emp_position / masterlist empposition_id) that
+    // count as the department role even when no title says so.
+    public const RCA_CAPA_ALLOWED_POSITIONS = ['2', '3', '4'];
+    public const DEPARTMENT_ROLE_POSITIONS = self::RCA_CAPA_ALLOWED_POSITIONS;
+
+    // The four roles, for messages. Matching uses the patterns below.
+    public const RCA_CAPA_TITLES = ['Supervisor', 'Section Head', 'Engineer', 'Manager'];
+    public const DEPARTMENT_ROLE_TITLES = self::RCA_CAPA_TITLES;
+
+    // Whole-word patterns, including the short forms used in job titles:
+    // "Engr" / "Engr." / "Eng'r" / "Engg", "Sup" / "Supv" / "Supvr", "Mgr",
+    // "Sec Head" / "Sect. Head". "Process Engineer" and "Senior Engineer"
+    // match; "Engineering Technician" does not.
+    public const DEPARTMENT_ROLE_TITLE_PATTERNS = [
+        '/\\bsupervisors?\\b|\\bsupv?r?\\b\\.?/i',
+        '/\\bsect?(ion)?\\.?\\s*head\\b/i',
+        '/\\bengineers?\\b|\\beng\'?r\\b\\.?|\\bengg\\b/i',
+        '/\\bmanagers?\\b|\\bmgr\\b\\.?/i',
+    ];
+
     /**
-     * Who's allowed to submit Dept RCA / Dept CAPA:Supervisor-and-up by
-     * job title (the original rule), OR one of the whitelisted position
-     * codes (RCA_CAPA_ALLOWED_POSITIONS) regardless of job title. Single
-     * source of truth for both QdnWorkflowController's canSubmit props
-     * (Rca/Show, Capa/Show) and its assertCanAnswerRcaOrCapa() guard, so
-     * the Submit button and the server-side check never disagree.
+     * Supervisor / Section Head / Engineer / Manager by any title the app
+     * can read (see departmentRoleTitleCandidates()), or position code 2/3/4.
+     * Department is NOT checked here; see hasDepartmentRoleIn().
      */
-    public static function canAnswerRcaOrCapa(): bool
+    public static function hasDepartmentRole(): bool
     {
-        return static::hasRcaCapaTitle()
-            || static::isPositionAnyOf(self::RCA_CAPA_ALLOWED_POSITIONS);
+        return static::hasDepartmentRoleTitle()
+            || static::isPositionAnyOf(self::DEPARTMENT_ROLE_POSITIONS);
     }
 
-    // RCA / CAPA submitters by position (per the user: "Issued To Department
-    // and position is Supervisor, Section Head, Engineer, and Manager can
-    // submit"). Matched as whole words, so "Engineer" matches "Process
-    // Engineer" / "Senior Engineer" but NOT "Engineering Technician".
-    public const RCA_CAPA_TITLES = ['Supervisor', 'Section Head', 'Engineer', 'Manager'];
-
-    /**
-     * True if any title the app knows for the current employee (Authify
-     * emp_jobtitle / emp_position_level, masterlist JOB_TITLE /
-     * POSITION_LEVEL -- see titleCandidates()) contains one of
-     * RCA_CAPA_TITLES as a whole word.
-     */
-    public static function hasRcaCapaTitle(): bool
+    /** hasDepartmentRole() AND a member of $department (Authify or masterlist). */
+    public static function hasDepartmentRoleIn(?string $department): bool
     {
-        $titles = array_filter([static::jobTitle()]);
-        foreach ([$titles, static::titleCandidates()] as $set) {
-            foreach ($set as $title) {
-                foreach (self::RCA_CAPA_TITLES as $needle) {
-                    $pattern = '/\\b' . str_replace(' ', '\\s+', preg_quote($needle, '/')) . 's?\\b/i';
-                    if (preg_match($pattern, (string) $title)) {
-                        return true;
-                    }
-                }
+        return trim((string) $department) !== ''
+            && static::isInDepartment((string) $department)
+            && static::hasDepartmentRole();
+    }
+
+    public static function hasDepartmentRoleTitle(): bool
+    {
+        foreach (static::departmentRoleTitleCandidates() as $title) {
+            if (static::titleIsDepartmentRole($title)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function titleIsDepartmentRole(?string $title): bool
+    {
+        // "Process_Engineer" / "QA-Engineer" style titles: treat _ as a space.
+        $title = str_replace('_', ' ', (string) $title);
+        foreach (self::DEPARTMENT_ROLE_TITLE_PATTERNS as $pattern) {
+            if (preg_match($pattern, $title)) {
+                return true;
             }
         }
 
@@ -304,26 +326,86 @@ class CurrentEmployee
     }
 
     /**
-     * canAnswerRcaOrCapa() for one QDN. Customer: Others QDNs are handled
-     * by the people who raised them, so on those the issuer (qdns.issued_by)
-     * and the Issued To employee (qdn_validations.issued_to_employee_id) can
-     * also submit RCA / CAPA, whatever their position. Every other QDN keeps
-     * the Supervisor-and-up / position-code rule unchanged. The owning-
-     * department check (assertOwningDepartment) still applies on top.
+     * Every place a title / position name can live: Authify emp_jobtitle,
+     * emp_position_level, emp_position (when it is a name, not a code) and
+     * emp_job_level; masterlist position name, position level and
+     * designation (employee_designation -> designation_name).
+     *
+     * @return string[]
+     */
+    public static function departmentRoleTitleCandidates(): array
+    {
+        $titles = static::titleCandidates();
+        $titles[] = static::jobTitle();
+        $titles[] = session('emp_data.emp_position');
+        $titles[] = session('emp_data.emp_job_level');
+
+        $empId = trim((string) static::employId());
+        if ($empId !== '') {
+            $titles[] = once(fn() => rescue(fn() => \App\Models\Masterlist\EmployeeDesignation::with('designation')
+                ->where('employid', $empId)->first()?->designation?->designation_name, null, report: false));
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map(fn($t) => is_scalar($t) && !is_numeric(trim((string) $t)) ? trim((string) $t) : '', $titles),
+            fn($t) => $t !== ''
+        )));
+    }
+
+    /**
+     * Plain-words reason the current employee doesn't count as the
+     * department role for $department, with the values checked, or null
+     * if they do. Used in the 403s and on the RCA / CAPA / Approval pages.
+     */
+    public static function departmentRoleBlockReason(?string $department): ?string
+    {
+        $reasons = [];
+        $department = trim((string) $department);
+
+        if ($department === '' || !static::isInDepartment($department)) {
+            $mine = static::departmentCandidates();
+            $reasons[] = 'you are not in ' . ($department !== '' ? "the {$department} department" : 'the QDN\'s department')
+                . ' (your department: ' . ($mine ? implode(' / ', $mine) : 'none found') . ')';
+        }
+
+        if (!static::hasDepartmentRole()) {
+            $titles = static::departmentRoleTitleCandidates();
+            $reasons[] = 'your title (' . ($titles ? implode(' / ', $titles) : 'none found')
+                . ') is not Supervisor, Section Head, Engineer or Manager and your position code ('
+                . (static::position() ?? 'none') . ' / ' . (static::masterlistPositionId() ?? 'none')
+                . ') is not 2, 3 or 4';
+        }
+
+        return $reasons ? implode('; ', $reasons) : null;
+    }
+
+    // -- Dept RCA / Dept CAPA ----------------------------------------------
+
+    /** Kept for the sidebar (qdnRoles.canAnswerRcaOrCapa): the role alone, no department. */
+    public static function canAnswerRcaOrCapa(): bool
+    {
+        return static::hasDepartmentRole();
+    }
+
+    public static function hasRcaCapaTitle(): bool
+    {
+        return static::hasDepartmentRoleTitle();
+    }
+
+    /**
+     * Who can submit Dept RCA / Dept CAPA on this QDN:
+     *   1. Supervisor / Section Head / Engineer / Manager (or position code
+     *      2/3/4) in the QDN's Issued To department (qdns.issued_department), or
+     *   2. approver1/2/3 of the Issued To employee (masterlist.employee_approver), or
+     *   3. Customer: Others only: the issuer or the Issued To employee.
+     * The same-factory condition was dropped: the department is enough.
      */
     public static function canAnswerRcaOrCapaFor(\App\Models\Qdn $qdn): bool
     {
-        // Supervisor / Section Head / Engineer / Manager (or position code
-        // 2/3/4) of the Issued To department -- the department part is
-        // checked by the controller -- AND in the same factory as the
-        // Issued To employee (masterlist.employee_factory -> factory).
-        if (static::canAnswerRcaOrCapa() && static::isSameFactoryAsIssuedTo($qdn)) {
+        if (static::hasDepartmentRoleIn($qdn->issued_department)) {
             return true;
         }
 
-        // Approver1/2/3 of the Issued To employee (masterlist.employee_approver)
-        // is the responder for that employee, whatever their job title or
-        // position code says. Same lookup Dept Approval already uses.
         if (static::isIssuedToApproverFor($qdn)) {
             return true;
         }
@@ -343,6 +425,19 @@ class CurrentEmployee
         return $empId !== '' && $issuedTo !== '' && $empId === $issuedTo;
     }
 
+    // -- Dept Approval -------------------------------------------------------
+
+    /**
+     * Who can mark a CAPA Correct / Wrong at Dept Approval: Supervisor /
+     * Section Head / Engineer / Manager (or position code 2/3/4) in the QDN's
+     * Issued To department, or approver1/2/3 of the Issued To employee.
+     */
+    public static function canApproveDeptFor(\App\Models\Qdn $qdn): bool
+    {
+        return static::hasDepartmentRoleIn($qdn->issued_department)
+            || static::isIssuedToApproverFor($qdn);
+    }
+
     /**
      * Trimmed + case-insensitive on purpose -- department names come from
      * two different sources that don't necessarily agree on casing
@@ -353,9 +448,53 @@ class CurrentEmployee
      */
     public static function isInDepartment(string $department): bool
     {
-        $current = static::department();
+        $wanted = static::normalizeDepartment($department);
+        if ($wanted === '') {
+            return false;
+        }
 
-        return $current !== null && strcasecmp(trim($current), trim($department)) === 0;
+        // Authify emp_dept first (no query), then the masterlist department.
+        if (static::normalizeDepartment(static::department()) === $wanted) {
+            return true;
+        }
+
+        return static::normalizeDepartment(static::masterlistDepartment()) === $wanted;
+    }
+
+    /**
+     * Lower-cased, trimmed, every run of whitespace (including non-breaking
+     * spaces and tabs) collapsed to one space. "Process  Engineering",
+     * "PROCESS ENGINEERING" and "Process Engineering\u{00A0}" all compare
+     * equal to "process engineering".
+     */
+    public static function normalizeDepartment(?string $department): string
+    {
+        $department = (string) $department;
+        $collapsed = preg_replace('/[\s\x{00A0}]+/u', ' ', $department);
+
+        return strtolower(trim($collapsed ?? $department));
+    }
+
+    /**
+     * The signed-in employee's department name from the masterlist
+     * (employee_department -> department.dep_name), cached for the request.
+     * Authify's emp_dept is a copy taken at sign-in and can be a code, an
+     * old name, or blank; this is the source of truth the rest of the app
+     * already uses for "Issued To". A masterlist error counts as unknown.
+     */
+    public static function masterlistDepartment(): ?string
+    {
+        $empId = trim((string) static::employId());
+        if ($empId === '') {
+            return null;
+        }
+
+        return once(fn() => rescue(function () use ($empId) {
+            $name = \App\Models\Masterlist\Employee::with('currentDepartment.department')
+                ->find($empId)?->DEPARTMENT;
+
+            return $name === null || trim((string) $name) === '' ? null : trim((string) $name);
+        }, null, report: true));
     }
 
     /**
@@ -379,6 +518,23 @@ class CurrentEmployee
     // employee's actual session('emp_data.emp_dept').
     public const DEPARTMENT_PE = 'Process Engineering';
 
+    // Every spelling that counts as Process Engineering for isPe(). Matched
+    // ignoring case and extra spaces; anything starting with "Process
+    // Engineering" also counts. Add your own spelling here if needed.
+    public const DEPARTMENT_PE_NAMES = [
+        'Process Engineering',
+        'Process Engineering Department',
+        'Process Engineering Dept',
+        'Process Engineering Dept.',
+        'Process Engg',
+        'Process Engg.',
+        "Process Eng'g",
+        'Process Eng',
+        'PE',
+        'PE Department',
+        'PE Dept',
+    ];
+
     // Likewise "QA" -- confirmed to cover two distinct real department
     // names, both treated as QA for QA Verification purposes.
     public const DEPARTMENT_QA = ['Quality Assurance', 'Quality Management System'];
@@ -390,12 +546,13 @@ class CurrentEmployee
 
     /**
      * Which cross-approval group (QdnCrossApproval::DEPT_*) the current
-     * employee can approve for: Supervisor / Section Head / Manager by job
-     * title, in Process Engineering, Equipment Engineering, QA or Production.
+     * employee can approve for: Supervisor / Section Head / Engineer /
+     * Manager (hasDepartmentRole()), in Process Engineering, Equipment
+     * Engineering, QA or Production.
      */
     public static function crossApprovalDepartmentKey(): ?string
     {
-        if (!static::isSupervisorAndUpByAnyTitle()) {
+        if (!static::hasDepartmentRole()) {
             return null;
         }
         foreach (\App\Models\QdnCrossApproval::departments() as $key => $dept) {
@@ -442,16 +599,23 @@ class CurrentEmployee
 
     /**
      * The current employee's department when they could approve as an
-     * "Issuing Dept" (Supervisor+, department not one of the fixed four).
+     * "Issuing Dept" (Supervisor / Section Head / Engineer / Manager,
+     * department not one of the fixed four).
      */
     public static function otherIssuingDepartment(): ?string
     {
-        $department = trim((string) static::department());
-        if ($department === '' || \App\Models\QdnCrossApproval::isFixedDepartment($department)) {
+        if (!static::hasDepartmentRole()) {
             return null;
         }
 
-        return static::isSupervisorAndUpByAnyTitle() ? $department : null;
+        // Authify emp_dept first, then the masterlist department.
+        foreach (static::departmentCandidates() as $department) {
+            if (!\App\Models\QdnCrossApproval::isFixedDepartment($department)) {
+                return $department;
+            }
+        }
+
+        return null;
     }
 
     public static function isSupervisorAndUpByAnyTitle(): bool
@@ -482,7 +646,7 @@ class CurrentEmployee
 
         $empId = trim((string) static::employId());
         if ($empId !== '') {
-            $titles = array_merge($titles, once(fn () => rescue(function () use ($empId) {
+            $titles = array_merge($titles, once(fn() => rescue(function () use ($empId) {
                 $employee = \App\Models\Masterlist\Employee::with([
                     'currentPosition.position',
                     'currentPositionLevel.positionLevel',
@@ -493,14 +657,80 @@ class CurrentEmployee
         }
 
         return array_values(array_unique(array_filter(
-            array_map(fn ($t) => is_scalar($t) ? trim((string) $t) : '', $titles),
-            fn ($t) => $t !== ''
+            array_map(fn($t) => is_scalar($t) ? trim((string) $t) : '', $titles),
+            fn($t) => $t !== ''
         )));
     }
 
+    /**
+     * Department: PE (Process Engineering). True when EITHER the Authify
+     * session department (emp_dept) OR the masterlist department is one of
+     * DEPARTMENT_PE_NAMES, or starts with "Process Engineering" (e.g.
+     * "Process Engineering - FOL"). Comparison ignores case and extra
+     * spaces.
+     *
+     * Before this, only the Authify emp_dept was checked, and only for an
+     * exact "Process Engineering". Anyone whose emp_dept said something
+     * else (a code, "Process Engg", "PE", trailing "Dept", or an old value
+     * kept in the session) was refused on the PE Queue and Validate pages
+     * even though the masterlist shows Process Engineering.
+     */
     public static function isPe(): bool
     {
-        return static::isInDepartment(self::DEPARTMENT_PE);
+        foreach (static::departmentCandidates() as $department) {
+            if (static::isPeDepartmentName($department)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function isPeDepartmentName(?string $department): bool
+    {
+        $normalized = static::normalizeDepartment($department);
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::DEPARTMENT_PE_NAMES as $name) {
+            if ($normalized === static::normalizeDepartment($name)) {
+                return true;
+            }
+        }
+
+        return str_starts_with($normalized, 'process engineering');
+    }
+
+    /** @return string[] the Authify emp_dept and the masterlist department, non-empty, de-duplicated */
+    public static function departmentCandidates(): array
+    {
+        $candidates = [];
+        foreach ([static::department(), static::masterlistDepartment()] as $department) {
+            $department = trim((string) $department);
+            if ($department !== '' && !in_array($department, $candidates, true)) {
+                $candidates[] = $department;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Message for a 403 on a PE-only page, showing the department values the
+     * app actually saw so a mismatch can be spotted straight away.
+     */
+    public static function peDeniedMessage(): string
+    {
+        $authify = trim((string) static::department());
+        $masterlist = trim((string) static::masterlistDepartment());
+
+        return sprintf(
+            'Only Department: Process Engineering can access QDN validation. Your department is recorded as "%s" in Authify (emp_dept) and "%s" in the masterlist (employee %s).',
+            $authify !== '' ? $authify : 'blank',
+            $masterlist !== '' ? $masterlist : 'not found',
+            trim((string) static::employId()) ?: 'unknown',
+        );
     }
 
     public static function isQa(): bool

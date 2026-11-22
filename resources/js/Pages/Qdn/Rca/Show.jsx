@@ -1,16 +1,16 @@
-import { useForm, Head } from '@inertiajs/react';
-import { AlertTriangle, ArrowUpRight, Settings } from 'lucide-react';
-import QdnDetailCard from '@/Components/QdnDetailCard';
-import EmployeeSearchSelect from '@/Components/EmployeeSearchSelect';
-import { Timeline, TimelineItem } from '@/Components/Timeline';
-import BackLink from '@/Components/BackLink';
+import { useForm, Head } from "@inertiajs/react";
+import { AlertTriangle, ArrowUpRight, Settings } from "lucide-react";
+import QdnDetailCard from "@/Components/QdnDetailCard";
+import EmployeeSearchSelect from "@/Components/EmployeeSearchSelect";
+import { Timeline, TimelineItem } from "@/Components/Timeline";
+import BackLink from "@/Components/BackLink";
 
 const EMPTY_ROW = {
-    reason_root_cause_id: '',
-    cause: '',
-    defect_source_id: '',
-    responsible_employee_id: '',
-    responsible_employee_name: '',
+    reason_root_cause_id: "",
+    cause: "",
+    defect_source_id: "",
+    responsible_employee_id: "",
+    responsible_employee_name: "",
     issued_to: [],
 };
 
@@ -19,8 +19,10 @@ const EMPTY_ROW = {
 // defect_source table gets re-seeded/reordered later.
 function isManDefect(defects, defectSourceId) {
     if (!defectSourceId) return false;
-    const selected = defects.find((d) => String(d.id) === String(defectSourceId));
-    return (selected?.label ?? '').trim().toLowerCase() === 'man';
+    const selected = defects.find(
+        (d) => String(d.id) === String(defectSourceId),
+    );
+    return (selected?.label ?? "").trim().toLowerCase() === "man";
 }
 
 /**
@@ -49,7 +51,16 @@ function isManDefect(defects, defectSourceId) {
  * carries responsible_employee_name and its issued_to array),
  * reasonRootCauses, defects.
  */
-export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonRootCauses, defects }) {
+export default function RcaShow({
+    qdn,
+    canSubmit,
+    submitBlockedReason,
+    event,
+    escape,
+    system,
+    reasonRootCauses,
+    defects,
+}) {
     const { data, setData, post, processing, errors } = useForm({
         event: event.length ? event : [{ ...EMPTY_ROW }],
         escape: escape.length ? escape : [{ ...EMPTY_ROW }],
@@ -64,7 +75,7 @@ export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonR
         // already-added Issued To entries -- they'd never be persisted
         // server-side anyway (syncRcaCauses() only saves them when the
         // row's defect resolves to Man), so this keeps the form honest.
-        if (field === 'defect_source_id' && !isManDefect(defects, value)) {
+        if (field === "defect_source_id" && !isManDefect(defects, value)) {
             updatedRow = { ...updatedRow, issued_to: [] };
         }
 
@@ -76,8 +87,8 @@ export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonR
         const rows = data[group].slice();
         rows[index] = {
             ...rows[index],
-            responsible_employee_id: employee?.EMPLOYID ?? '',
-            responsible_employee_name: employee?.EMPLOYNAME ?? '',
+            responsible_employee_id: employee?.EMPLOYID ?? "",
+            responsible_employee_name: employee?.EMPLOYNAME ?? "",
         };
         setData(group, rows);
     }
@@ -142,7 +153,10 @@ export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonR
 
             <form onSubmit={handleSubmit}>
                 <Timeline>
-                    <TimelineItem icon={AlertTriangle} title="Root Cause of Event">
+                    <TimelineItem
+                        icon={AlertTriangle}
+                        title="Root Cause of Event"
+                    >
                         <RcaCauseGroup
                             addLabel="+ add event"
                             group="event"
@@ -159,7 +173,10 @@ export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonR
                         />
                     </TimelineItem>
 
-                    <TimelineItem icon={ArrowUpRight} title="Root Cause of Escape">
+                    <TimelineItem
+                        icon={ArrowUpRight}
+                        title="Root Cause of Escape"
+                    >
                         <RcaCauseGroup
                             addLabel="+ add escape"
                             group="escape"
@@ -196,13 +213,26 @@ export default function RcaShow({ qdn, canSubmit, event, escape, system, reasonR
 
                 {!canSubmit && (
                     <p className="qdn-restricted-notice">
-                        Only Supervisor, Section Head, Engineer, Manager, or the Issued To employee's approver can submit RCA. You can still fill this out, but
-                        submitting requires someone at that level to sign in and click Submit.
+                        Only a Supervisor, Section Head, Engineer or Manager of
+                        the Issued To department, or the Issued To employee's
+                        approver, can submit RCA. You can still fill this out,
+                        but submitting requires someone at that level to sign in
+                        and click Submit.
+                        {submitBlockedReason && (
+                            <>
+                                <br />
+                                {submitBlockedReason}
+                            </>
+                        )}
                     </p>
                 )}
 
                 <div className="qdn-dashboard-section">
-                    <button type="submit" className="qdn-btn" disabled={processing || !canSubmit}>
+                    <button
+                        type="submit"
+                        className="qdn-btn"
+                        disabled={processing || !canSubmit}
+                    >
                         Submit
                     </button>
                 </div>
@@ -242,9 +272,15 @@ function RcaCauseGroup({
                     onRemoveIssued={onRemoveIssued}
                 />
             ))}
-            {errors[group] && <p className="qdn-field-error">{errors[group]}</p>}
+            {errors[group] && (
+                <p className="qdn-field-error">{errors[group]}</p>
+            )}
 
-            <button type="button" className="qdn-btn" onClick={() => onAdd(group)}>
+            <button
+                type="button"
+                className="qdn-btn"
+                onClick={() => onAdd(group)}
+            >
                 {addLabel}
             </button>
         </>
@@ -266,7 +302,10 @@ function CauseRow({
     const showIssuedTo = isManDefect(defects, row.defect_source_id);
 
     const responsibleValue = row.responsible_employee_id
-        ? { EMPLOYID: row.responsible_employee_id, EMPLOYNAME: row.responsible_employee_name }
+        ? {
+              EMPLOYID: row.responsible_employee_id,
+              EMPLOYNAME: row.responsible_employee_name,
+          }
         : null;
 
     return (
@@ -275,8 +314,15 @@ function CauseRow({
                 <div className="qdn-field">
                     <label>Select Cause</label>
                     <select
-                        value={row.reason_root_cause_id ?? ''}
-                        onChange={(e) => onChange(group, index, 'reason_root_cause_id', e.target.value)}
+                        value={row.reason_root_cause_id ?? ""}
+                        onChange={(e) =>
+                            onChange(
+                                group,
+                                index,
+                                "reason_root_cause_id",
+                                e.target.value,
+                            )
+                        }
                     >
                         <option value="">-- Select Cause --</option>
                         {reasonRootCauses.map((r) => (
@@ -291,16 +337,25 @@ function CauseRow({
                     <label>Cause</label>
                     <input
                         type="text"
-                        value={row.cause ?? ''}
-                        onChange={(e) => onChange(group, index, 'cause', e.target.value)}
+                        value={row.cause ?? ""}
+                        onChange={(e) =>
+                            onChange(group, index, "cause", e.target.value)
+                        }
                     />
                 </div>
 
                 <div className="qdn-field">
                     <label>Source of Defect</label>
                     <select
-                        value={row.defect_source_id ?? ''}
-                        onChange={(e) => onChange(group, index, 'defect_source_id', e.target.value)}
+                        value={row.defect_source_id ?? ""}
+                        onChange={(e) =>
+                            onChange(
+                                group,
+                                index,
+                                "defect_source_id",
+                                e.target.value,
+                            )
+                        }
                     >
                         <option value="">-- Source of Defect --</option>
                         {defects.map((d) => (
@@ -315,7 +370,9 @@ function CauseRow({
                     <label>Select Responsible</label>
                     <EmployeeSearchSelect
                         value={responsibleValue}
-                        onChange={(employee) => onResponsibleChange(group, index, employee)}
+                        onChange={(employee) =>
+                            onResponsibleChange(group, index, employee)
+                        }
                     />
                 </div>
 
@@ -335,7 +392,9 @@ function CauseRow({
                         <EmployeeSearchSelect
                             value={null}
                             placeholder="Search employee to add…"
-                            onChange={(employee) => onAddIssued(group, index, employee)}
+                            onChange={(employee) =>
+                                onAddIssued(group, index, employee)
+                            }
                         />
                     </div>
 
@@ -363,7 +422,13 @@ function CauseRow({
                                             <button
                                                 type="button"
                                                 className="qdn-btn qdn-btn-secondary"
-                                                onClick={() => onRemoveIssued(group, index, issuedIndex)}
+                                                onClick={() =>
+                                                    onRemoveIssued(
+                                                        group,
+                                                        index,
+                                                        issuedIndex,
+                                                    )
+                                                }
                                             >
                                                 Remove
                                             </button>

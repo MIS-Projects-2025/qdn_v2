@@ -48,15 +48,18 @@ class HandleInertiaRequests extends Middleware
             'qdnRoles' => fn() => session('emp_data') ? [
                 'isPe'       => CurrentEmployee::isPe(),
                 'isQa'       => CurrentEmployee::isQa(),
-                'isApprover' => CurrentEmployee::isApprover(),
+                // Shows Dept: Approval: assigned approvers, and Supervisor /
+                // Section Head / Engineer / Manager of any department.
+                'isApprover' => CurrentEmployee::isApprover() || CurrentEmployee::hasDepartmentRole(),
                 'canAnswerRcaOrCapa' => CurrentEmployee::canAnswerRcaOrCapa(),
                 // Fixed key (pe/ee/qa/prod), or "other" for a Supervisor+ of
                 // another department while a Customer: Others QDN it raised
                 // is at this step.
                 'crossApprovalDepartment' => CurrentEmployee::crossApprovalDepartmentKey()
-                    ?? (rescue(fn () => ($dept = CurrentEmployee::otherIssuingDepartment())
+                    ?? (rescue(fn() => ($dept = CurrentEmployee::otherIssuingDepartment())
                         && \App\Models\QdnCrossApproval::scopeIssuedByDepartment(
-                            \App\Models\Qdn::where('status', \App\Models\Qdn::STATUS_FOR_CROSS_APPROVAL), $dept
+                            \App\Models\Qdn::where('status', \App\Models\Qdn::STATUS_FOR_CROSS_APPROVAL),
+                            $dept
                         )->exists(), false, report: true) ? \App\Models\QdnCrossApproval::DEPT_OTHER : null),
                 // Maintenance (lookup lists): QA / QMS, plus app admins.
                 'canMaintain' => \App\Http\Middleware\QdnMaintenanceMiddleware::allowed(),

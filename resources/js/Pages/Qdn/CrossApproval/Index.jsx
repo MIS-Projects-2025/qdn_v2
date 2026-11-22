@@ -16,9 +16,17 @@ export function ApprovalChips({ approvals }) {
                 <span
                     key={key}
                     className={`qdn-cross-chip ${a.approved ? "is-approved" : "is-pending"}`}
-                    title={a.approved ? `Approved by ${a.approved_by} on ${a.approved_at}` : "Pending"}
+                    title={
+                        a.approved
+                            ? `Approved by ${a.approved_by} on ${a.approved_at}`
+                            : "Pending"
+                    }
                 >
-                    {a.approved ? <CheckCircle2 size={13} /> : <Clock size={13} />}
+                    {a.approved ? (
+                        <CheckCircle2 size={13} />
+                    ) : (
+                        <Clock size={13} />
+                    )}
                     {a.label}
                 </span>
             ))}
@@ -26,7 +34,12 @@ export function ApprovalChips({ approvals }) {
     );
 }
 
-export default function CrossApprovalIndex({ qdns, myDepartmentKey, myIssuingDepartment, departments }) {
+export default function CrossApprovalIndex({
+    qdns,
+    myDepartmentKey,
+    myIssuingDepartment,
+    departments,
+}) {
     const myLabel = myDepartmentKey ? departments[myDepartmentKey] : null;
 
     return (
@@ -35,10 +48,12 @@ export default function CrossApprovalIndex({ qdns, myDepartmentKey, myIssuingDep
             <BackLink href="/qdn/dashboard" label="Back to QDN Dashboard" />
             <h1>PE / EE / QA / Production Approval</h1>
             <p className="qdn-page-subtitle">
-                After Dept Approval, one Supervisor, Section Head or Manager from each of Process
-                Engineering, Equipment Engineering, QA and Production approves. The first approver in each
-                department counts for that department. For Customer: Others QDNs, the department that
-                raised the QDN (Issuing Dept) must also approve.
+                After Dept Approval, one Supervisor, Section Head, Engineer or
+                Manager from each of Process Engineering, Equipment Engineering,
+                QA and Production approves. The first approver in each
+                department counts for that department. For Customer: Others
+                QDNs, the department that raised the QDN (Issuing Dept) must
+                also approve.
                 {myLabel
                     ? ` You approve for ${myLabel}.`
                     : myIssuingDepartment
@@ -60,22 +75,44 @@ export default function CrossApprovalIndex({ qdns, myDepartmentKey, myIssuingDep
                     <tbody>
                         {qdns.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="qdn-empty">No QDNs waiting for PE / EE / QA / Production approval.</td>
+                                <td colSpan={5} className="qdn-empty">
+                                    No QDNs waiting for PE / EE / QA /
+                                    Production approval.
+                                </td>
                             </tr>
                         ) : (
                             qdns.map((q) => {
-                                const mineDone = q.my_key && q.approvals[q.my_key]?.approved;
+                                const mineDone =
+                                    q.my_key && q.approvals[q.my_key]?.approved;
                                 return (
                                     <tr key={q.id}>
-                                        <td><strong>{q.qdn_no}</strong></td>
-                                        <td>{q.issued_department ?? "—"}</td>
-                                        <td><ClassificationBadge classification={q.classification} /></td>
-                                        <td><ApprovalChips approvals={q.approvals} /></td>
                                         <td>
-                                            <Link href={`/qdn/cross-approval/${q.id}`} className="qdn-icon-link" title="Open">
+                                            <strong>{q.qdn_no}</strong>
+                                        </td>
+                                        <td>{q.issued_department ?? "—"}</td>
+                                        <td>
+                                            <ClassificationBadge
+                                                classification={
+                                                    q.classification
+                                                }
+                                            />
+                                        </td>
+                                        <td>
+                                            <ApprovalChips
+                                                approvals={q.approvals}
+                                            />
+                                        </td>
+                                        <td>
+                                            <Link
+                                                href={`/qdn/cross-approval/${q.id}`}
+                                                className="qdn-icon-link"
+                                                title="Open"
+                                            >
                                                 <Users size={16} />
                                                 <span style={{ marginLeft: 6 }}>
-                                                    {q.my_key && !mineDone ? "Approve" : "View"}
+                                                    {q.my_key && !mineDone
+                                                        ? "Approve"
+                                                        : "View"}
                                                 </span>
                                             </Link>
                                         </td>

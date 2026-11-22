@@ -78,6 +78,7 @@ const SUPERVISOR_LIKE = ["%Supervisor%"];
 export default function CapaShow({
     qdn,
     canSubmit,
+    submitBlockedReason,
     lastReturn,
     containmentChecked,
     containment,
@@ -843,10 +844,17 @@ export default function CapaShow({
 
                 {!canSubmit && (
                     <p className="qdn-restricted-notice">
-                        Only Supervisor, Section Head, Engineer, Manager, or the
-                        Issued To employee's approver can submit CAPA. You can still fill this out, but submitting
-                        requires someone at that level to sign in and click
-                        Submit.
+                        Only a Supervisor, Section Head, Engineer or Manager of
+                        the Issued To department, or the Issued To employee's
+                        approver, can submit CAPA. You can still fill this out,
+                        but submitting requires someone at that level to sign in
+                        and click Submit.
+                        {submitBlockedReason && (
+                            <>
+                                <br />
+                                {submitBlockedReason}
+                            </>
+                        )}
                     </p>
                 )}
 
