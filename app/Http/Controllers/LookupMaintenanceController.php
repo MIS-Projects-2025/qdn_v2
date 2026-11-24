@@ -75,8 +75,12 @@ class LookupMaintenanceController extends Controller
             ],
             // Who added / last changed a row, and when (the table's own column names).
             'audit' => [
-                'created_num' => 'created_by_emp_num', 'created_name' => 'created_by_emp_name', 'created_at' => 'date_created',
-                'updated_num' => 'updated_by_emp_num', 'updated_name' => 'update_by_emp_name', 'updated_at' => 'date_update',
+                'created_num' => 'created_by_emp_num',
+                'created_name' => 'created_by_emp_name',
+                'created_at' => 'date_created',
+                'updated_num' => 'updated_by_emp_num',
+                'updated_name' => 'update_by_emp_name',
+                'updated_at' => 'date_update',
             ],
         ],
         // The RCA form's Source of Defect (Man / Machine / ...), separate from defect_list.
@@ -168,7 +172,11 @@ class LookupMaintenanceController extends Controller
         $config = $this->config($list);
         $data = $this->validated($request, $config);
 
-        $config['model']::create($this->attributes($config, $data) + $this->auditValues($config, 'created'));
+        $config['model']::create(
+            $this->attributes($config, $data)
+                + $this->auditValues($config, 'created')
+                + $this->requiredUpdatedValues($config)
+        );
 
         return redirect()->route('qdn.maintenance.index', $list)
             ->with('success', "{$config['field']} \"{$data['name']}\" added.");
@@ -182,7 +190,8 @@ class LookupMaintenanceController extends Controller
         $data = $this->validated($request, $config, $id);
 
         if (($reason = $this->protectedReason($config, $current))
-            && strcasecmp(trim($current), trim($data['name'])) !== 0) {
+            && strcasecmp(trim($current), trim($data['name'])) !== 0
+        ) {
             return back()->with('error', "\"{$current}\" can't be renamed. {$reason}");
         }
 
@@ -238,7 +247,46 @@ class LookupMaintenanceController extends Controller
     {
         abort_unless(isset(self::LISTS[$list]), 404);
 
-        return self::LISTS[$list];
+        $config = self::LISTS[$list];
+        // Lists without an explicit 'audit' map: find the who/when columns
+        // in the real table (qdn_db's lists have created_by_emp_num etc.
+        // as NOT NULL with no default, so an insert must fill them).
+        if (!isset($config['audit'])) {
+            $audit = $this->detectAudit($config);
+            if ($audit) {
+                $config['audit'] = $audit;
+            }
+        }
+
+        return $config;
+    }
+
+    /** Candidate column names for each audit slot, first match wins. */
+    private const AUDIT_CANDIDATES = [
+        'created_num' => ['created_by_emp_num', 'created_by_emp_no', 'created_by_empnum', 'created_by'],
+        'created_name' => ['created_by_emp_name', 'created_by_name'],
+        'created_at' => ['date_created', 'created_date', 'date_added'],
+        'updated_num' => ['updated_by_emp_num', 'update_by_emp_num', 'updated_by_emp_no', 'updated_by_empnum', 'updated_by'],
+        'updated_name' => ['updated_by_emp_name', 'update_by_emp_name', 'updated_by_name'],
+        'updated_at' => ['date_updated', 'date_update', 'updated_date', 'date_modified'],
+    ];
+
+    /** Map of audit slot => real column for this list's table (only the ones that exist). */
+    private function detectAudit(array $config): array
+    {
+        $columns = array_keys($this->columnInfo($config));
+
+        $audit = [];
+        foreach (self::AUDIT_CANDIDATES as $slot => $candidates) {
+            foreach ($candidates as $candidate) {
+                if (in_array($candidate, $columns, true)) {
+                    $audit[$slot] = $candidate;
+                    break;
+                }
+            }
+        }
+
+        return $audit;
     }
 
     private function validated(Request $request, array $config, ?int $ignoreId = null): array
@@ -249,7 +297,9 @@ class LookupMaintenanceController extends Controller
 
         $rules = [
             'name' => [
-                'required', 'string', 'max:' . ($config['max'] ?? 255),
+                'required',
+                'string',
+                'max:' . ($config['max'] ?? 255),
                 // Case-insensitive duplicate check (most MySQL collations
                 // already compare this way, LOWER() makes it explicit).
                 function ($attribute, $value, $fail) use ($table, $column, $ignoreId, $model, $config) {
@@ -311,13 +361,52 @@ class LookupMaintenanceController extends Controller
             return [];
         }
         $a = $config['audit'];
-        $limit = fn($v) => $v === null ? null : mb_substr((string) $v, 0, 45);
+        // '' instead of null so a NOT NULL column never rejects the row.
+        $limit = fn($v) => mb_substr((string) ($v ?? ''), 0, 45);
 
-        return [
-            $a["{$which}_num"] => $limit(CurrentEmployee::employId()),
-            $a["{$which}_name"] => $limit(CurrentEmployee::name()),
-            $a["{$which}_at"] => now(),
+        $values = [
+            "{$which}_num" => $limit(CurrentEmployee::employId()),
+            "{$which}_name" => $limit(CurrentEmployee::name()),
+            "{$which}_at" => now(),
         ];
+
+        $out = [];
+        foreach ($values as $slot => $value) {
+            if (isset($a[$slot])) {
+                $out[$a[$slot]] = $value;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * updated_* columns that are NOT NULL with no default must also be
+     * filled on insert, or MySQL rejects the row (error 1364).
+     */
+    private function requiredUpdatedValues(array $config): array
+    {
+        $info = $this->columnInfo($config);
+
+        return array_filter(
+            $this->auditValues($config, 'updated'),
+            fn($column) => isset($info[strtolower($column)]) && $info[strtolower($column)]['required'],
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    private array $columnInfoCache = [];
+
+    /** lower-case column name => ['required' => NOT NULL and no default] for the list's table. */
+    private function columnInfo(array $config): array
+    {
+        $table = (new $config['model'])->getTable();
+
+        return $this->columnInfoCache[$table] ??= collect(rescue(fn() => Schema::getColumns($table), [], false))
+            ->mapWithKeys(fn($c) => [strtolower($c['name']) => [
+                'required' => !$c['nullable'] && $c['default'] === null && empty($c['auto_increment']),
+            ]])
+            ->all();
     }
 
     private function auditText(array $config, Model $row): ?array
@@ -326,11 +415,13 @@ class LookupMaintenanceController extends Controller
             return null;
         }
         $a = $config['audit'];
-        $fmt = fn($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('Y-m-d H:i') : null;
+        $get = fn($slot) => isset($a[$slot]) ? $row->{$a[$slot]} : null;
+        $fmt = fn($v) => $v ? rescue(fn() => \Illuminate\Support\Carbon::parse($v)->format('Y-m-d H:i'), (string) $v, false) : null;
+        $who = fn($which) => $get("{$which}_name") ?: $get("{$which}_num");
 
         return [
-            'created' => trim(($row->{$a['created_name']} ?? '') . ' ' . ($fmt($row->{$a['created_at']}) ?? '')) ?: null,
-            'updated' => trim(($row->{$a['updated_name']} ?? '') . ' ' . ($fmt($row->{$a['updated_at']}) ?? '')) ?: null,
+            'created' => trim(($who('created') ?? '') . ' ' . ($fmt($get('created_at')) ?? '')) ?: null,
+            'updated' => trim(($who('updated') ?? '') . ' ' . ($fmt($get('updated_at')) ?? '')) ?: null,
         ];
     }
 
